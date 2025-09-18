@@ -24,13 +24,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # 1. 安装构建依赖 (Numpy)
       - name: Install build dependencies
         shell: bash
         run: |
           python -m pip install numpy
 
-      # 2. 检出 OpenCV 的官方源码
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
@@ -38,7 +36,7 @@ jobs:
           ref: ${{ env.OPENCV_VERSION }}
           path: opencv
 
-      # --- 关键修正 1: 将 imgcodecs 添加到 BUILD_LIST ---
+      # --- 关键修正: 将 highgui 添加到 BUILD_LIST ---
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         working-directory: ./opencv
@@ -46,7 +44,7 @@ jobs:
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d \
+            -DBUILD_LIST=core,imgproc,imgcodecs,highgui,calib3d \
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
             -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
@@ -60,7 +58,7 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d \
+            -DBUILD_LIST=core,imgproc,imgcodecs,highgui,calib3d \
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
             -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
