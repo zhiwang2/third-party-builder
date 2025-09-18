@@ -33,24 +33,35 @@ jobs:
         run: |
           set -ex
 
-          # 1) 让 autotools 用到 pkgconf（很多项目硬编码找 `pkg-config`）
-          export PKG_CONFIG=pkgconf
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          # 保证 /mingw64/bin 在 PATH 前面
+          export PATH="/mingw64/bin:$PATH"
 
-          # 2) 预检：zlib 是否可被 pkgconf 识别、是否能编译并链接
+          # 1) 放一个 pkg-config 包装器，强制转发到 mingw 版 pkgconf
+          WRAPBIN="$(mktemp -d)"
+          printf '#!/bin/sh\nexec /mingw64/bin/pkgconf "$@"\n' > "$WRAPBIN/pkg-config"
+          chmod +x "$WRAPBIN/pkg-config"
+          export PATH="$WRAPBIN:$PATH"
+
+          # 2) 诊断：两套命令都要能找到 zlib
+          which pkg-config
+          pkg-config --version
+          pkg-config --modversion zlib
+
+          which pkgconf
           pkgconf --version
           pkgconf --modversion zlib
 
+          # 3) 试编译+链接（确保 -lz 可用）
           printf '#include <zlib.h>\nint main(){return (int)zlibVersion()[0];}\n' > ztest.c
           gcc -I/mingw64/include ztest.c -L/mingw64/lib -lz -o ztest.exe
           ./ztest.exe || true
 
-          # 3) 获取源码并构建
+          # 4) 拉源码并构建
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
           ./autogen.sh
 
-          # 显式传入 ZLIB 路径（双保险）
+          # 显式传入 zlib 标志（双保险）
           ./configure \
             --prefix="$PWD/../install_jb2" \
             ZLIB_CFLAGS="-I/mingw64/include" \
@@ -68,7 +79,7 @@ jobs:
           # 主程序
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
 
-          # 运行时 DLL（存在即复制）
+          # 常见运行时 DLL（存在就复制）
           for f in \
             /mingw64/bin/zlib1.dll \
             /mingw64/bin/lept*.dll \
@@ -81,7 +92,7 @@ jobs:
             [ -f "$f" ] && cp -v "$f" out/bin/ || true
           done
 
-          # 头文件/库，便于离线开发
+          # leptonica 头文件/库/pc，便于离线链接
           cp -rv /mingw64/include/leptonica out/deps/leptonica/include || true
           mkdir -p out/deps/leptonica/lib/pkgconfig
           cp -rv /mingw64/lib/libLept*.a out/deps/leptonica/lib || true
