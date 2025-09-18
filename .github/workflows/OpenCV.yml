@@ -8,9 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  # 定义要编译的 OpenCV 版本，方便未来统一修改
   OPENCV_VERSION: '4.9.0'
-  # 定义安装目录
   INSTALL_DIR: ${{ github.workspace }}/install
 
 jobs:
@@ -26,15 +24,21 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      # 1. 检出 OpenCV 的官方源码
+      # 1. 安装构建依赖 (Numpy)
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          python -m pip install numpy
+
+      # 2. 检出 OpenCV 的官方源码
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv
           ref: ${{ env.OPENCV_VERSION }}
-          path: opencv # 将源码下载到名为 opencv 的子目录中
+          path: opencv
 
-      # 2. 配置 CMake (Windows)
+      # --- 关键修正 1: 将 imgcodecs 添加到 BUILD_LIST ---
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         working-directory: ./opencv
@@ -42,14 +46,13 @@ jobs:
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_LIST=core,imgproc,calib3d \
+            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d \
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
             -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
             -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
-      # 3. 配置 CMake (macOS & Linux)
       - name: Configure CMake (macOS & Linux)
         if: runner.os != 'Windows'
         working-directory: ./opencv
@@ -57,22 +60,21 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_LIST=core,imgproc,calib3d \
+            -DBUILD_LIST=core,imgproc,imgcodecs,calib3d \
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
             -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
             -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
-      # 4. 执行构建和安装
+      # --------------------------------------------------------
+
       - name: Build and Install OpenCV
         working-directory: ./opencv
         shell: bash
-        # 使用多核心编译，并指定 Release 配置进行安装
         run: |
           cmake --build build --config Release --target install -j4
 
-      # 5. 上传编译好的库文件作为产物
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
         with:
