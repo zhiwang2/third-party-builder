@@ -94,12 +94,11 @@ jobs:
           ARTIFACT_DIR="jbig2enc-release"
           mkdir -p "$ARTIFACT_DIR"
 
-          INSTALL_BIN_DIR="jbig2enc/build_output/bin"
+          # 修正点：从项目的根目录（构建目录）直接复制可执行文件，而不是从安装目录。
+          echo "正在收集 jbig2enc.exe (从项目构建目录)..."
+          cp "jbig2enc/jbig2enc.exe" "$ARTIFACT_DIR/"
+
           MINGW_BIN_DIR="/mingw64/bin"
-
-          echo "正在收集 jbig2enc.exe..."
-          cp "$INSTALL_BIN_DIR/jbig2enc.exe" "$ARTIFACT_DIR/"
-
           echo "正在收集运行时依赖的 DLL 文件..."
           # 使用通配符来匹配 DLL，使其对库的版本变化更具鲁棒性
           cp "$MINGW_BIN_DIR/zlib1.dll" "$ARTIFACT_DIR/"
