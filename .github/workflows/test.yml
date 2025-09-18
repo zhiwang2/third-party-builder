@@ -1,34 +1,93 @@
-  - name: Build jbig2enc 0.30
-    shell: msys2 {0}
-    run: |
-      set -ex
-      ZPREFIX="$PWD/install_zlib"
+name: jbig2enc (Windows only)
 
-      # 编译/链接参数：用绝对路径的导入库，避免 -lz 探测误判；并带上 -lws2_32
-      export ZLIB_CFLAGS="-I$ZPREFIX/include"
-      export ZLIB_LIBS="$ZPREFIX/lib/libz.dll.a -lws2_32"
-      export CPPFLAGS="$ZLIB_CFLAGS ${CPPFLAGS-}"
-      export LDFLAGS="$ZLIB_LIBS ${LDFLAGS-}"
-      export LIBS="$ZLIB_LIBS ${LIBS-}"
+on:
+  workflow_dispatch:  # manual trigger only
 
-      # 通过 CONFIG_SITE 告诉 autoconf：头文件/链接都存在（尽管它后面还有自定义检测）
-      cat > cache.site <<'EOF'
-      ac_cv_header_zlib_h=yes
-      ac_cv_lib_z_deflate=yes
-      EOF
-      export CONFIG_SITE="$PWD/cache.site"
+jobs:
+  jbig2enc_windows:
+    name: jbig2enc 0.30 — Windows (MSYS2/MINGW64)
+    runs-on: windows-latest
 
-      git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
-      cd jbig2enc
-      ./autogen.sh
+    steps:
+      - name: Setup MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          release: false
+          update: true
+          msystem: MINGW64
+          install: >-
+            base-devel
+            autoconf
+            automake
+            libtool
+            m4
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-pkgconf
 
-      # ⚠️ 关键补丁：把“Error! zlib not detected.” 这类硬错误改成 no-op
-      # （不同 autoconf 版本展开可能不同，下面两条都打一下，命中其一即可）
-      sed -i 's/AC_MSG_ERROR(\[Error! zlib not detected\.\])/: # patched: skip zlib fatal/g' configure || true
-      sed -i 's/echo "Error! zlib not detected\." ; exit 1/: # patched: skip zlib fatal/g' configure || true
+      - name: Build zlib (shared)
+        shell: msys2 {0}
+        run: |
+          set -ex
+          git clone --depth 1 https://github.com/madler/zlib.git
+          cmake -S zlib -B build_zlib -G "MinGW Makefiles" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SHARED_LIBS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/install_zlib"
+          cmake --build build_zlib -j
+          cmake --install build_zlib
+          ls -l install_zlib/include/zlib.h
+          ls -l install_zlib/lib/libz.dll.a
+          ls -l install_zlib/bin/zlib*.dll
 
-      # 现在再跑 configure（若仍失败，导出 config.log 以便排障）
-      ./configure --prefix="$PWD/../install_jb2" || { echo "=== tail config.log ==="; tail -n 200 config.log || true; exit 1; }
+      - name: Build jbig2enc 0.30
+        shell: msys2 {0}
+        run: |
+          set -ex
+          ZPREFIX="$PWD/install_zlib"
 
-      make -j
-      make install
+          # 编译/链接参数：绝对路径导入库，避免 -lz 误判；带上 -lws2_32
+          export ZLIB_CFLAGS="-I$ZPREFIX/include"
+          export ZLIB_LIBS="$ZPREFIX/lib/libz.dll.a -lws2_32"
+          export CPPFLAGS="$ZLIB_CFLAGS ${CPPFLAGS-}"
+          export LDFLAGS="$ZLIB_LIBS ${LDFLAGS-}"
+          export LIBS="$ZLIB_LIBS ${LIBS-}"
+
+          # CONFIG_SITE 缓存：让 autoconf 跳过 zlib 探测
+          cat > cache.site <<'EOF'
+          ac_cv_header_zlib_h=yes
+          ac_cv_lib_z_deflate=yes
+          EOF
+          export CONFIG_SITE="$PWD/cache.site"
+
+          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+          cd jbig2enc
+          ./autogen.sh
+
+          # 补丁：屏蔽自定义的“zlib 未检测到”致命退出
+          sed -i 's/AC_MSG_ERROR(\[Error! zlib not detected\.\])/: # patched: skip zlib fatal/g' configure || true
+          sed -i 's/echo "Error! zlib not detected\." ; exit 1/: # patched: skip zlib fatal/g' configure || true
+
+          ./configure --prefix="$PWD/../install_jb2" \
+            || { echo "=== tail config.log ==="; tail -n 200 config.log || true; exit 1; }
+
+          make -j
+          make install
+
+      - name: Collect artifact
+        shell: msys2 {0}
+        run: |
+          set -ex
+          mkdir -p out/bin out/include out/lib out/logs
+          cp -v install_jb2/bin/jbig2enc.exe out/bin/
+          cp -v install_zlib/bin/zlib*.dll out/bin/ || true
+          [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/ || true
+          [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
+          [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jbig2enc-0.30-Windows
+          path: out/**
