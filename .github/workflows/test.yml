@@ -1,49 +1,13 @@
-name: Third-Party (jbig2enc — macOS & Windows)
+name: jbig2enc (Windows only)
+
 on:
-  workflow_dispatch:  # 仅手动触发
+  workflow_dispatch:  # manual only
 
 jobs:
-  # ---------------------- jbig2enc (+ leptonica) on macOS ----------------------
-  jbig2enc_macos:
-    name: jbig2enc 0.30 — macOS
-    runs-on: macos-14
-    steps:
-      - name: Install build deps (Homebrew)
-        run: |
-          brew update
-          brew install autoconf automake libtool pkg-config git \
-                       libpng jpeg-turbo libtiff zlib
-      - name: Build Leptonica (from source)
-        run: |
-          set -eux
-          git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
-          cd leptonica
-          ./autogen.sh
-          ./configure --prefix="$PWD/../install_lept"
-          make -j
-          make install
-      - name: Build jbig2enc 0.30 (autotools)
-        run: |
-          set -eux
-          export PKG_CONFIG_PATH="$PWD/install_lept/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-          export CPPFLAGS="-I$PWD/install_lept/include ${CPPFLAGS:-}"
-          export LDFLAGS="-L$PWD/install_lept/lib ${LDFLAGS:-}"
-          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
-          cd jbig2enc
-          ./autogen.sh
-          ./configure --prefix="$PWD/../install_jb2"
-          make -j
-          make install
-      - name: Upload artifact (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: jbig2enc-0.30-macOS
-          path: install_jb2/**
-
-  # ---------------------- jbig2enc (+ leptonica) on Windows --------------------
   jbig2enc_windows:
     name: jbig2enc 0.30 — Windows (MSYS2/MINGW64)
     runs-on: windows-latest
+
     steps:
       - name: Setup MSYS2 (MINGW64) and dependencies
         uses: msys2/setup-msys2@v2
@@ -70,10 +34,11 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eux
-          # 让 configure 通过 pkg-config 找到 /mingw64 的 leptonica
-          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:${PKG_CONFIG_PATH}"
-          export CPPFLAGS="-I/mingw64/include ${CPPFLAGS}"
-          export LDFLAGS="-L/mingw64/lib ${LDFLAGS}"
+          # Let pkg-config find leptonica and codec deps installed in /mingw64
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          export CPPFLAGS="-I/mingw64/include ${CPPFLAGS:-}"
+          export LDFLAGS="-L/mingw64/lib ${LDFLAGS:-}"
+
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
           ./autogen.sh
@@ -81,23 +46,23 @@ jobs:
           make -j
           make install
 
-      - name: Collect & upload artifact (Windows)
+      - name: Collect and upload artifact
         shell: bash
         run: |
           set -eux
           mkdir -p out/bin out/lib out/include
-          # 主程序
+          # Main executable
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
-          # 常见运行期 DLL（放同目录，减少 PATH 依赖）
+          # Bundle common runtime DLLs to avoid PATH issues
           cp -v /c/msys64/mingw64/bin/lept*.dll out/bin/ || true
           cp -v /c/msys64/mingw64/bin/libpng*.dll out/bin/ || true
           cp -v /c/msys64/mingw64/bin/libjpeg*.dll out/bin/ || true
           cp -v /c/msys64/mingw64/bin/libtiff*.dll out/bin/ || true
           cp -v /c/msys64/mingw64/bin/zlib*.dll out/bin/ || true
-          # 可能的开发文件（若有安装）
+          # Dev files if present
           if [ -d install_jb2/include ]; then cp -rv install_jb2/include/* out/include/; fi
           if ls install_jb2/lib/* 1>/dev/null 2>&1; then cp -v install_jb2/lib/* out/lib/; fi
-        # 上传
+        # Upload artifact
       - uses: actions/upload-artifact@v4
         with:
           name: jbig2enc-0.30-Windows
