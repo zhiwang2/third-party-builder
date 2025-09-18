@@ -38,20 +38,17 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # 修正点：移除了所有注释和非包名的文本，只保留空格分隔的包名列表
           install: >-
-            # 基础构建工具
             git
             autoconf
             automake
             libtool
             m4
-            # 工具链和 pkg-config
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
-            # 核心依赖
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-leptonica
-            # Leptonica 的运行时依赖
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
             mingw-w64-x86_64-libtiff
@@ -136,17 +133,8 @@ jobs:
           echo "打包目录内容一览:"
           ls -l "$ARTIFACT_DIR"
 
-          # --- 可选：如果您需要打包用于开发的头文件和库，请取消下面的注释 ---
-          # echo "正在收集开发文件 (头文件、静态库、.pc 文件)..."
-          # DEV_DIR="$ARTIFACT_DIR/dev"
-          # mkdir -p "$DEV_DIR/include" "$DEV_DIR/lib/pkgconfig"
-          # cp jbig2enc/build_output/include/jbig2enc/*.h "$DEV_DIR/include/"
-          # cp jbig2enc/build_output/lib/*.a "$DEV_DIR/lib/"
-          # cp jbig2enc/build_output/lib/pkgconfig/*.pc "$DEV_DIR/lib/pkgconfig/"
-
       - name: 8. 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: jbig2enc-windows-x64
           path: jbig2enc-release/
-
