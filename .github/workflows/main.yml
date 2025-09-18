@@ -2,32 +2,56 @@ name: Build third_party libs
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/third_party.yml"
 
 jobs:
   openjpeg:
     name: OpenJPEG 2.5.3 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-22.04]
     steps:
       - uses: actions/checkout@v4
-      - run: git clone --depth 1 --branch v2.5.3 https://github.com/uclouvain/openjpeg.git
-      - name: Build & Install
+      - name: Get source
+        run: git clone --depth 1 --branch v2.5.3 https://github.com/uclouvain/openjpeg.git
+      - name: Configure & Build
         shell: bash
         run: |
           cmake -S openjpeg -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DCMAKE_INSTALL_PREFIX="$PWD/install"
           cmake --build build --config Release -j
           cmake --install build --config Release
+      - name: Layout & checksums
+        shell: bash
+        run: |
+          mkdir -p out/openjpeg/{bin,lib,include}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            shopt -s nullglob
+            cp -v install/bin/*.dll out/openjpeg/bin/ || true
+            cp -v install/lib/*.lib out/openjpeg/lib/ || true
+            cp -rv install/include/* out/openjpeg/include/
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp -v install/lib/*.dylib out/openjpeg/lib/
+            cp -rv install/include/* out/openjpeg/include/
+          else
+            cp -v install/lib/libopenjp2.so* out/openjpeg/lib/
+            cp -rv install/include/* out/openjpeg/include/
+          fi
+          (cd out && find . -type f -print0 | xargs -0 shasum -a 256 > checksums.txt)
+          tar -czf openjpeg-${{ runner.os }}.tar.gz -C out .
       - uses: actions/upload-artifact@v4
         with:
           name: openjpeg-2.5.3-${{ runner.os }}
-          path: install/**
+          path: openjpeg-*.tar.gz
 
   jbig2enc:
     name: jbig2enc 0.30 (+leptonica) (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-22.04]
     steps:
       - uses: actions/checkout@v4
       - name: Build leptonica (shared)
@@ -45,28 +69,54 @@ jobs:
             -DLeptonica_DIR="$PWD/install_lept/lib/cmake/leptonica" -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2"
           cmake --build build_jb2 --config Release -j
           cmake --install build_jb2 --config Release
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Layout & checksums
+        shell: bash
+        run: |
+          mkdir -p out/jbig2enc/{bin,lib,include} out/leptonica/{bin,lib,include}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp -v install_jb2/bin/*.exe out/jbig2enc/bin/ || true
+            cp -v install_jb2/bin/*.dll out/jbig2enc/bin/ || true
+            cp -v install_jb2/lib/*.dll out/jbig2enc/bin/ || true
+            cp -v install_jb2/lib/*.lib out/jbig2enc/lib/ || true
+            cp -rv install_jb2/include/* out/jbig2enc/include/
+            cp -v install_lept/bin/*.dll out/leptonica/bin/ || true
+            cp -v install_lept/lib/*.lib out/leptonica/lib/ || true
+            cp -rv install_lept/include/* out/leptonica/include/
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
+            cp -v install_jb2/lib/*.dylib out/jbig2enc/lib/ || true
+            cp -rv install_jb2/include/* out/jbig2enc/include/
+            cp -v install_lept/lib/*.dylib out/leptonica/lib/ || true
+            cp -rv install_lept/include/* out/leptonica/include/
+          else
+            cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
+            cp -v install_jb2/lib/*.so* out/jbig2enc/lib/ || true
+            cp -rv install_jb2/include/* out/jbig2enc/include/
+            cp -v install_lept/lib/*.so* out/leptonica/lib/ || true
+            cp -rv install_lept/include/* out/leptonica/include/
+          fi
+          (cd out && find . -type f -print0 | xargs -0 shasum -a 256 > checksums.txt)
+          tar -czf jbig2enc-${{ runner.os }}.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
         with:
           name: jbig2enc-0.30-${{ runner.os }}
-          path: |
-            install_jb2/**
-            install_lept/**
+          path: jbig2enc-*.tar.gz
 
   verapdf:
     name: veraPDF 1.28.2 bundle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+      matrix: { os: [windows-latest, macos-14, ubuntu-22.04] }
     steps:
-      - name: Download official zip (+asc)
+      - name: Download official zip
         shell: bash
         run: |
           mkdir out && cd out
           curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip
           curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip.asc
           shasum -a 256 * > checksums.txt
+          zip -r verapdf-1.28.2-${{ runner.os }}.zip .
       - uses: actions/upload-artifact@v4
         with:
           name: verapdf-1.28.2-${{ runner.os }}
-          path: out/**
+          path: out/verapdf-*.zip
