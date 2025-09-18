@@ -2,13 +2,10 @@
 # GitHub Actions 工作流程：在 Windows (MinGW) 环境下构建 jbig2enc
 #
 # 摘要:
-# 本文件根据用户提供的详细分析进行构建。核心解决方案是：
-# 1. 使用 MSYS2/MINGW64 作为构建环境。
-# 2. 绕过 jbig2enc 的 configure 脚本中存在的 zlib 检测缺陷。
-#    - 最终策略：直接对 configure 脚本进行精确打补丁，将导致致命退出的 "exit 1" 注释掉。
-#      此版本修正了之前 sed 命令中因模式匹配错误而导致补丁失效的问题。
-# 3. 显式传入 ZLIB 和 Leptonica 的编译/链接标志。
-# 4. 最终打包 jbig2enc.exe 及其所有运行时依赖的 DLL 文件。
+# 本文件根据用户提供的详细分析进行构建。
+# 最终解决方案：放弃所有对脚本的补丁操作，采用更优雅、更标准的 Autotools 缓存机制。
+# 通过在 configure 阶段直接注入 ac_cv_lib_ws2_32__head_libws2_32_a=yes，
+# 从根源上解决了 jbig2enc 在 MinGW 上因 ws2_32 库检测瑕疵而导致的连锁失败问题。
 #
 name: Build jbig2enc on Windows
 
@@ -66,39 +63,24 @@ jobs:
           echo "正在运行 autogen.sh..."
           ./autogen.sh
 
-      - name: 5. 直接修补 configure 脚本以规避 zlib 检测错误
+      - name: 5. 配置、编译和安装
         working-directory: ./jbig2enc
         run: |
-          echo "正在为 configure 脚本打补丁，注释掉 zlib 检测失败后的 exit 1..."
-          # 核心修正：使用正确的文本模式 "zlib not detected\." 来查找脚本内的代码，
-          # 而不是匹配其运行时输出 "Error! zlib not detected."。
-          # 此 sed 命令查找包含 "zlib not detected." 的行，
-          # 然后通过 'n' 命令移动到下一行，并将该行的 'exit 1' 替换为 '# exit 1' (注释掉)。
-          sed -i 's/echo.*zlib not detected\..*/&\n# Patched by GitHub Action to prevent exit\n#exit 1/' configure
-          echo "补丁应用成功。"
-          # 验证补丁是否成功
-          echo "验证补丁："
-          grep -C 3 "zlib not detected" configure
-
-
-      - name: 6. 配置、编译和安装
-        working-directory: ./jbig2enc
-        run: |
-          # 创建一个独立的安装目录，便于后续打包
+          # 创建一个独立的安装目录
           INSTALL_PREFIX="$(pwd)/build_output"
           mkdir -p "$INSTALL_PREFIX"
 
-          echo "正在获取 ZLIB 和 Leptonica 的 CFLAGS 和 LIBS..."
-          # 显式从 pkg-config 获取并传递配置，确保 configure 能正确找到依赖
-          export ZLIB_CFLAGS="$(pkg-config --cflags zlib)"
-          export ZLIB_LIBS="$(pkg-config --libs zlib)"
-          export LEPTONICA_CFLAGS="$(pkg-config --cflags lept)"
-          export LEPTONICA_LIBS="$(pkg-config --libs lept)"
-
-          echo "运行 ./configure..."
-          # --prefix 指定安装路径
-          # LDFLAGS 需要包含 zlib 库路径，以帮助链接阶段的测试
-          LDFLAGS="$LDFLAGS $(pkg-config --libs-only-L zlib)" ./configure --prefix="$INSTALL_PREFIX"
+          echo "运行 ./configure 并注入缓存变量以修复 zlib 检测..."
+          # 核心修正：直接向 configure 注入 ac_cv_lib_ws2_32__head_libws2_32_a=yes
+          # 这直接解决了 jbig2enc 在 MinGW 上对 ws2_32 库的错误检测问题，
+          # 从而避免了连锁触发的“zlib not detected”错误。这比打补丁更干净。
+          ./configure \
+            --prefix="$INSTALL_PREFIX" \
+            ac_cv_lib_ws2_32__head_libws2_32_a=yes \
+            ZLIB_CFLAGS="$(pkg-config --cflags zlib)" \
+            ZLIB_LIBS="$(pkg-config --libs zlib)" \
+            LEPTONICA_CFLAGS="$(pkg-config --cflags lept)" \
+            LEPTONICA_LIBS="$(pkg-config --libs lept)"
 
           echo "运行 make..."
           make
@@ -106,7 +88,7 @@ jobs:
           echo "运行 make install..."
           make install
 
-      - name: 7. 收集并打包产物
+      - name: 6. 收集并打包产物
         run: |
           # 用于存放最终产物的目录
           ARTIFACT_DIR="jbig2enc-release"
@@ -119,12 +101,12 @@ jobs:
           cp "$INSTALL_BIN_DIR/jbig2enc.exe" "$ARTIFACT_DIR/"
 
           echo "正在收集运行时依赖的 DLL 文件..."
-          # 恢复为明确的 DLL 复制列表，这与您最初的成功策略一致
+          # 使用通配符来匹配 DLL，使其对库的版本变化更具鲁棒性
           cp "$MINGW_BIN_DIR/zlib1.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/liblept-5.dll" "$ARTIFACT_DIR/" # Leptonica 库名通常是 liblept-5.dll
-          cp "$MINGW_BIN_DIR/libpng16-16.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libjpeg-8.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libtiff-5.dll" "$ARTIFACT_DIR/"
+          cp "$MINGW_BIN_DIR/liblept*.dll" "$ARTIFACT_DIR/"
+          cp "$MINGW_BIN_DIR/libpng*.dll" "$ARTIFACT_DIR/"
+          cp "$MINGW_BIN_DIR/libjpeg*.dll" "$ARTIFACT_DIR/"
+          cp "$MINGW_BIN_DIR/libtiff*.dll" "$ARTIFACT_DIR/"
           # 复制 GCC 运行时库
           cp "$MINGW_BIN_DIR/libstdc++-6.dll" "$ARTIFACT_DIR/"
           cp "$MINGW_BIN_DIR/libgcc_s_seh-1.dll" "$ARTIFACT_DIR/"
@@ -136,7 +118,7 @@ jobs:
           echo "打包目录内容一览:"
           ls -l "$ARTIFACT_DIR"
 
-      - name: 8. 上传构建产物
+      - name: 7. 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: jbig2enc-windows-x64
