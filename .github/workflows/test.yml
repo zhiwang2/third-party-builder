@@ -30,7 +30,7 @@ jobs:
             mingw-w64-x86_64-libtiff
             mingw-w64-x86_64-leptonica
 
-      # ---- Build zlib from source into a known prefix (install_zlib) ----
+      # 1) Build zlib (shared) into a known prefix we control
       - name: Build zlib (shared) from source
         shell: msys2 {0}
         run: |
@@ -42,13 +42,13 @@ jobs:
                 -DCMAKE_INSTALL_PREFIX="$PWD/install_zlib"
           cmake --build build_zlib -j
           cmake --install build_zlib
-          # Quick sanity check
+          # Sanity check
           ls -l install_zlib/include/zlib.h
           ls -l install_zlib/lib/libz.dll.a
           ls -l install_zlib/bin/zlib*.dll
 
-      # ---- Build jbig2enc using that zlib ----
-      - name: Build jbig2enc 0.30 (autotools / MSYS2)
+      # 2) Build jbig2enc using that zlib; FORCE autotools cache to "have zlib"
+      - name: Build jbig2enc 0.30 (autotools / MSYS2, with zlib cache override)
         shell: msys2 {0}
         run: |
           set -eux
@@ -66,7 +66,8 @@ jobs:
           cd jbig2enc
           ./autogen.sh
 
-          # Pass zlib flags both as env and as explicit args
+          # 👇 关键：用 Autoconf 缓存变量强制命中 zlib 探测
+          ac_cv_header_zlib_h=yes ac_cv_lib_z_deflate=yes \
           ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
           ./configure ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
                      --prefix="$PWD/../install_jb2"
@@ -74,7 +75,7 @@ jobs:
           make -j
           make install
 
-      # ---- Collect runtime DLLs and upload artifact ----
+      # 3) Collect runtime DLLs and upload artifact
       - name: Collect and upload artifact
         shell: bash
         run: |
