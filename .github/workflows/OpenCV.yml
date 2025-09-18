@@ -9,11 +9,18 @@ on:
 
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-  VCPKG_PACKAGES: "opencv4[core,imgproc,calib3d,world]"
+  
+  # --- 关键修正 ---
+  # 1. 用于 vcpkg 命令的包列表 (保留原始格式)
+  VCPKG_PACKAGES_COMMAND: "opencv4[core,imgproc,calib3d,world]"
+  
+  # 2. 用于缓存键的“干净”版本 (移除了非法字符)
+  VCPKG_PACKAGES_KEY: "opencv4-core-imgproc-calib3d-world"
 
 jobs:
   build:
     strategy:
+      fail-fast: false # 建议添加，这样即使一个平台失败，其他平台也会继续运行完
       matrix:
         include:
           - os: windows-latest
@@ -28,9 +35,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    # --- 关键修正 ---
-    # 在这里为整个 Job 设置默认的 shell
-    # 这样下面的每个 run 步骤都会自动使用正确的 shell
     defaults:
       run:
         shell: ${{ matrix.shell }}
@@ -39,15 +43,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 使用“干净”的 VCPKG_PACKAGES_KEY 作为缓存键的一部分
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_ROOT }}
-          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES }}
+          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES_KEY }} # <- 使用修正后的键
           restore-keys: |
             vcpkg-${{ matrix.os }}-
 
-      # 在这个步骤中，不再需要单独指定 'shell:'
       - name: Bootstrap vcpkg
         run: |
           if [ ! -d "${{ env.VCPKG_ROOT }}" ]; then
@@ -56,10 +60,10 @@ jobs:
           cd "${{ env.VCPKG_ROOT }}"
           ./bootstrap-vcpkg.sh
 
-      # 这里也不再需要单独指定 'shell:'
+      # 在安装时，仍然使用带逗号的 VCPKG_PACKAGES_COMMAND
       - name: Install OpenCV using vcpkg (Classic Mode)
         run: |
-          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES }} --triplet ${{ matrix.triplet }}
+          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
 
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
