@@ -9,50 +9,42 @@ on:
 
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-  
-  # --- 关键修正 ---
-  # 1. 用于 vcpkg 命令的包列表 (保留原始格式)
   VCPKG_PACKAGES_COMMAND: "opencv4[core,imgproc,calib3d,world]"
-  
-  # 2. 用于缓存键的“干净”版本 (移除了非法字符)
   VCPKG_PACKAGES_KEY: "opencv4-core-imgproc-calib3d-world"
 
 jobs:
   build:
     strategy:
-      fail-fast: false # 建议添加，这样即使一个平台失败，其他平台也会继续运行完
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             triplet: x64-windows
-            shell: pwsh
           - os: macos-latest
             triplet: x64-osx
-            shell: bash
           - os: ubuntu-latest
             triplet: x64-linux
-            shell: bash
 
     runs-on: ${{ matrix.os }}
-
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 使用“干净”的 VCPKG_PACKAGES_KEY 作为缓存键的一部分
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_ROOT }}
-          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES_KEY }} # <- 使用修正后的键
+          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES_KEY }}
           restore-keys: |
             vcpkg-${{ matrix.os }}-
 
-      - name: Bootstrap vcpkg
+      # --- 关键修正：为不同平台使用不同的引导脚本 ---
+      
+      # 为 Linux 和 macOS (Unix-like) 系统执行的步骤
+      - name: Bootstrap vcpkg (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           if [ ! -d "${{ env.VCPKG_ROOT }}" ]; then
             git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
@@ -60,8 +52,21 @@ jobs:
           cd "${{ env.VCPKG_ROOT }}"
           ./bootstrap-vcpkg.sh
 
-      # 在安装时，仍然使用带逗号的 VCPKG_PACKAGES_COMMAND
+      # 为 Windows 系统执行的步骤
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${{ env.VCPKG_ROOT }}")) {
+            git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
+          }
+          cd "${{ env.VCPKG_ROOT }}"
+          ./bootstrap-vcpkg.bat
+
+      # ---------------------------------------------------
+
       - name: Install OpenCV using vcpkg (Classic Mode)
+        shell: bash # vcpkg 命令在所有平台都能被 bash 正确调用
         run: |
           ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
 
