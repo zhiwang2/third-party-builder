@@ -20,17 +20,15 @@ jobs:
             autoconf
             automake
             libtool
-            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf
-            # 关键：提供 zlib 和 leptonica（含 .pc）
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-leptonica
-            # leptonica 运行时常见依赖
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
             mingw-w64-x86_64-libtiff
 
-      - name: Build jbig2enc 0.30 (no patches)
+      - name: Build jbig2enc 0.30
         shell: msys2 {0}
         run: |
           set -ex
@@ -39,7 +37,7 @@ jobs:
           cd jbig2enc
           ./autogen.sh
           ./configure --prefix="$PWD/../install_jb2"
-          make -j$(nproc)
+          make -j$(nproc || echo 2)
           make install
 
       - name: Collect artifacts
@@ -48,31 +46,34 @@ jobs:
           set -ex
           mkdir -p out/bin out/include out/lib out/deps/leptonica out/logs
 
-          # 主程序
+          # main exe
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
 
-          # 运行时 DLL：zlib + leptonica + 常见图像依赖（存在则复制）
+          # runtime DLLs (存在才复制)
           for f in \
             /mingw64/bin/zlib1.dll \
             /mingw64/bin/lept*.dll \
             /mingw64/bin/libpng*.dll \
             /mingw64/bin/libjpeg*.dll \
-            /mingw64/bin/libtiff*.dll ; do
+            /mingw64/bin/libtiff*.dll \
+            /mingw64/bin/libgcc_s_seh-1.dll \
+            /mingw64/bin/libstdc++-6.dll \
+            /mingw64/bin/libwinpthread-1.dll ; do
             [ -f "$f" ] && cp -v "$f" out/bin/ || true
           done
 
-          # 头文件与库（给你离线开发/链接备用）
+          # headers/libs for offline dev
           cp -rv /mingw64/include/leptonica out/deps/leptonica/include || true
+          mkdir -p out/deps/leptonica/lib/pkgconfig
           cp -rv /mingw64/lib/libLept*.a out/deps/leptonica/lib || true
-          cp -rv /mingw64/lib/pkgconfig/lept*.pc out/deps/leptonica/lib/pkgconfig || true
+          cp -v /mingw64/lib/pkgconfig/lept*.pc out/deps/leptonica/lib/pkgconfig || true
 
-          # jbig2enc 自身的安装产物（含静态/导入库、pkgconfig 如有）
+          # jbig2enc install payloads (if any)
           [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
           [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
 
-          # 日志（方便你定位问题）
+          # logs
           [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/config.log || true
-          [ -f jbig2enc/configure ] && grep -n "zlib" jbig2enc/configure | tail -n 20 || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
