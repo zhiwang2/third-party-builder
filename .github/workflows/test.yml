@@ -30,37 +30,27 @@ jobs:
             mingw-w64-x86_64-libtiff
             mingw-w64-x86_64-leptonica
 
-      - name: Verify pkg-config entries (zlib/leptonica)
-        shell: msys2 {0}
-        run: |
-          set -eux
-          ls -l /mingw64/lib/pkgconfig || true
-          ls -l /mingw64/lib/pkgconfig/zlib.pc
-          ls -l /mingw64/lib/pkgconfig/lept.pc
-          pkgconf --modversion zlib
-          pkgconf --modversion lept
-          pkgconf --cflags zlib || true
-          pkgconf --libs zlib || true
-
       - name: Build jbig2enc 0.30 (autotools / MSYS2)
         shell: msys2 {0}
         run: |
           set -eux
-          # 安全拼接 PKG_CONFIG_PATH（避免未定义变量导致 -u 退出）
+          # pkg-config 搜索路径
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-          # 从 pkgconf 读取 zlib 的 CFLAGS/LIBS；若失败则兜底为标准目录
+          # 读取 zlib 的编译/链接参数；读取失败则兜底
           ZCFLAGS="$(pkgconf --cflags zlib || true)";  [ -n "$ZCFLAGS" ] || ZCFLAGS="-I/mingw64/include"
           ZLIBS="$(pkgconf --libs zlib   || true)";    [ -n "$ZLIBS" ]   || ZLIBS="-L/mingw64/lib -lz"
 
+          # 叠加到全局标志（双保险）
           export CPPFLAGS="${ZCFLAGS} ${CPPFLAGS:-}"
           export LDFLAGS="${ZLIBS} ${LDFLAGS:-}"
+          export LIBS="${ZLIBS} ${LIBS:-}"
 
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
           ./autogen.sh
 
-          # 传入显示的 zlib 变量（双保险），避免 configure 误判
+          # 关键：把 ZLIB_* 显式前缀在 configure 调用前
           ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
           ./configure --prefix="$PWD/../install_jb2"
 
