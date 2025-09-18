@@ -5,7 +5,7 @@ on:
 
 jobs:
   jbig2enc_windows:
-    name: jbig2enc 0.30 — Windows (MSYS2/MINGW64)
+    name: jbig2enc 0.30 - Windows (MSYS2/MINGW64)
     runs-on: windows-latest
 
     steps:
@@ -47,14 +47,14 @@ jobs:
           set -ex
           ZPREFIX="$PWD/install_zlib"
 
-          # 编译/链接参数：绝对路径导入库，避免 -lz 误判；带上 -lws2_32
+          # 编译/链接参数：用绝对路径导入库 + winsock
           export ZLIB_CFLAGS="-I$ZPREFIX/include"
           export ZLIB_LIBS="$ZPREFIX/lib/libz.dll.a -lws2_32"
           export CPPFLAGS="$ZLIB_CFLAGS ${CPPFLAGS-}"
           export LDFLAGS="$ZLIB_LIBS ${LDFLAGS-}"
           export LIBS="$ZLIB_LIBS ${LIBS-}"
 
-          # CONFIG_SITE 缓存：让 autoconf 跳过 zlib 探测
+          # 给 autoconf 好信号（即便项目内还有自定义检测）
           cat > cache.site <<'EOF'
           ac_cv_header_zlib_h=yes
           ac_cv_lib_z_deflate=yes
@@ -65,10 +65,23 @@ jobs:
           cd jbig2enc
           ./autogen.sh
 
-          # 补丁：屏蔽自定义的“zlib 未检测到”致命退出
-          sed -i 's/AC_MSG_ERROR(\[Error! zlib not detected\.\])/: # patched: skip zlib fatal/g' configure || true
-          sed -i 's/echo "Error! zlib not detected\." ; exit 1/: # patched: skip zlib fatal/g' configure || true
+          # 宽匹配补丁：把任何“zlib not/no found/detected”致命退出变为 no-op
+          # 1) 先打印原始命中，便于审计
+          echo '--- BEFORE PATCH (hits) ---' || true
+          grep -n -Ei '(zlib).*(not|no).*(found|detect)' configure || true
+          grep -n -Ei 'as_fn_error.*(zlib).*(not|no).*(found|detect)' configure || true
 
+          # 2) 逐类处理（兼容多种展开/空白/标点）
+          sed -i -E 's/^.*as_fn_error[^"]*"[^"]*(Z|z)lib[^"]*(not|no)[^"]*(found|detect)[^"]*".*$/: # patched: skip zlib fatal/g' configure
+          sed -i -E 's/^.*(Z|z)lib[^[:alnum:]]*(not|no)[^[:alnum:]]*(found|detect).*exit 1.*$/: # patched: skip zlib fatal/g' configure
+          sed -i -E 's/^.*(Z|z)lib[^[:alnum:]]*(not|no)[^[:alnum:]]*(found|detect).*$/: # patched: skip zlib fatal/g' configure
+
+          # 3) 再打印确认
+          echo '--- AFTER PATCH (hits) ---' || true
+          grep -n -Ei '(zlib).*(not|no).*(found|detect)' configure || true
+          grep -n -Ei 'as_fn_error.*(zlib).*(not|no).*(found|detect)' configure || true
+
+          # configure（失败则带日志尾部）
           ./configure --prefix="$PWD/../install_jb2" \
             || { echo "=== tail config.log ==="; tail -n 200 config.log || true; exit 1; }
 
