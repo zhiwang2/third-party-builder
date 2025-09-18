@@ -10,9 +10,10 @@ on:
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
-  # --- 关键修正 1: 使用正确的 vcpkg 特性名称 ---
-  VCPKG_PACKAGES_COMMAND: "opencv4[opencv-imgproc,opencv-calib3d,world]"
-  VCPKG_PACKAGES_KEY: "opencv4-opencv-imgproc-opencv-calib3d-world"
+  # --- 关键修正 1: 使用正确的、最简单的特性名 ---
+  # vcpkg 中 opencv4 的特性就是 'imgproc' 和 'calib3d'
+  VCPKG_PACKAGES_COMMAND: "opencv4[imgproc,calib3d,world]"
+  VCPKG_PACKAGES_KEY: "opencv4-imgproc-calib3d-world" # 相应更新缓存键
 
 jobs:
   build:
@@ -41,30 +42,38 @@ jobs:
           restore-keys: |
             vcpkg-${{ matrix.os }}-
 
-      # Bootstrap for Unix (Linux/macOS)
-      - name: Bootstrap vcpkg (Unix)
+      # --- 关键修正 2: 强制更新 vcpkg 仓库自身 ---
+      
+      # For Unix (Linux/macOS)
+      - name: Update and Bootstrap vcpkg (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           if [ ! -d "${{ env.VCPKG_ROOT }}" ]; then
             git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
           fi
+          # 强制更新 vcpkg 仓库，获取最新的包定义
           cd "${{ env.VCPKG_ROOT }}"
+          git pull
+          # 重新运行引导程序，以防工具本身需要更新
           ./bootstrap-vcpkg.sh
 
-      # Bootstrap for Windows
-      - name: Bootstrap vcpkg (Windows)
+      # For Windows
+      - name: Update and Bootstrap vcpkg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Test-Path "${{ env.VCPKG_ROOT }}")) {
             git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
           }
+          # 强制更新 vcpkg 仓库，获取最新的包定义
           cd "${{ env.VCPKG_ROOT }}"
+          git pull
+          # 重新运行引导程序，以防工具本身需要更新
           ./bootstrap-vcpkg.bat
 
-      # --- 关键修正 2: 为不同平台使用不同的 shell 来安装 ---
-      
+      # ---------------------------------------------------
+
       # Install for Unix (Linux/macOS)
       - name: Install OpenCV (Unix)
         if: runner.os != 'Windows'
@@ -78,8 +87,6 @@ jobs:
         shell: pwsh
         run: |
           ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
-          
-      # ---------------------------------------------------
 
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
