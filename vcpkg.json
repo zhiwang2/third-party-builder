@@ -1,4 +1,4 @@
-// vcpkg.json
+// vcpkg.json (正确且完整的版本)
 {
   "name": "my-project-name",
   "version": "1.0.0",
@@ -6,13 +6,13 @@
     {
       "name": "opencv4",
       "version>=": "4.12.0",
+      "default-features": false, // <--- 这是最关键的一行！它会关闭所有默认模块。
       "features": [
         "core",
         "imgproc",
         "calib3d",
         "world"
-      ],
-      "default-features": false
+      ]
     }
   ]
 }
