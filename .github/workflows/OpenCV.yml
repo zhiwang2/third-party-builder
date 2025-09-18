@@ -1,6 +1,6 @@
 # .github/workflows/OpenCV.yml
 
-name: Build Minimal OpenCV with vcpkg (No JSON)
+name: Build Minimal OpenCV from Source
 
 on:
   push:
@@ -8,12 +8,10 @@ on:
   workflow_dispatch:
 
 env:
-  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-
-  # --- 关键修正 1: 使用正确的、最简单的特性名 ---
-  # vcpkg 中 opencv4 的特性就是 'imgproc' 和 'calib3d'
-  VCPKG_PACKAGES_COMMAND: "opencv4[imgproc,calib3d,world]"
-  VCPKG_PACKAGES_KEY: "opencv4-imgproc-calib3d-world" # 相应更新缓存键
+  # 定义要编译的 OpenCV 版本，方便未来统一修改
+  OPENCV_VERSION: '4.9.0'
+  # 定义安装目录
+  INSTALL_DIR: ${{ github.workspace }}/install
 
 jobs:
   build:
@@ -22,75 +20,62 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            triplet: x64-windows
           - os: macos-latest
-            triplet: x64-osx
           - os: ubuntu-latest
-            triplet: x64-linux
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout repository
+      # 1. 检出 OpenCV 的官方源码
+      - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
-
-      - name: Cache vcpkg
-        uses: actions/cache@v4
         with:
-          path: ${{ env.VCPKG_ROOT }}
-          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES_KEY }}
-          restore-keys: |
-            vcpkg-${{ matrix.os }}-
+          repository: opencv/opencv
+          ref: ${{ env.OPENCV_VERSION }}
+          path: opencv # 将源码下载到名为 opencv 的子目录中
 
-      # --- 关键修正 2: 强制更新 vcpkg 仓库自身 ---
-      
-      # For Unix (Linux/macOS)
-      - name: Update and Bootstrap vcpkg (Unix)
-        if: runner.os != 'Windows'
+      # 2. 配置 CMake (Windows)
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ./opencv
         shell: bash
         run: |
-          if [ ! -d "${{ env.VCPKG_ROOT }}" ]; then
-            git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
-          fi
-          # 强制更新 vcpkg 仓库，获取最新的包定义
-          cd "${{ env.VCPKG_ROOT }}"
-          git pull
-          # 重新运行引导程序，以防工具本身需要更新
-          ./bootstrap-vcpkg.sh
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_LIST=core,imgproc,calib3d \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
+            -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
+            -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
-      # For Windows
-      - name: Update and Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "${{ env.VCPKG_ROOT }}")) {
-            git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
-          }
-          # 强制更新 vcpkg 仓库，获取最新的包定义
-          cd "${{ env.VCPKG_ROOT }}"
-          git pull
-          # 重新运行引导程序，以防工具本身需要更新
-          ./bootstrap-vcpkg.bat
-
-      # ---------------------------------------------------
-
-      # Install for Unix (Linux/macOS)
-      - name: Install OpenCV (Unix)
+      # 3. 配置 CMake (macOS & Linux)
+      - name: Configure CMake (macOS & Linux)
         if: runner.os != 'Windows'
+        working-directory: ./opencv
         shell: bash
         run: |
-          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_LIST=core,imgproc,calib3d \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
+            -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
+            -DBUILD_opencv_dnn=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_video=OFF \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
-      # Install for Windows
-      - name: Install OpenCV (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      # 4. 执行构建和安装
+      - name: Build and Install OpenCV
+        working-directory: ./opencv
+        shell: bash
+        # 使用多核心编译，并指定 Release 配置进行安装
         run: |
-          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
+          cmake --build build --config Release --target install -j4
 
+      # 5. 上传编译好的库文件作为产物
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: opencv-minimal-${{ matrix.os }}
-          path: ${{ env.VCPKG_ROOT }}/installed/${{ matrix.triplet }}
+          name: opencv-minimal-${{ runner.os }}
+          path: ${{ env.INSTALL_DIR }}
           retention-days: 7
