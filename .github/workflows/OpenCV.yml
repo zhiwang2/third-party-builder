@@ -9,8 +9,10 @@ on:
 
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-  VCPKG_PACKAGES_COMMAND: "opencv4[core,imgproc,calib3d,world]"
-  VCPKG_PACKAGES_KEY: "opencv4-core-imgproc-calib3d-world"
+
+  # --- 关键修正 1: 使用正确的 vcpkg 特性名称 ---
+  VCPKG_PACKAGES_COMMAND: "opencv4[opencv-imgproc,opencv-calib3d,world]"
+  VCPKG_PACKAGES_KEY: "opencv4-opencv-imgproc-opencv-calib3d-world"
 
 jobs:
   build:
@@ -39,9 +41,7 @@ jobs:
           restore-keys: |
             vcpkg-${{ matrix.os }}-
 
-      # --- 关键修正：为不同平台使用不同的引导脚本 ---
-      
-      # 为 Linux 和 macOS (Unix-like) 系统执行的步骤
+      # Bootstrap for Unix (Linux/macOS)
       - name: Bootstrap vcpkg (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -52,7 +52,7 @@ jobs:
           cd "${{ env.VCPKG_ROOT }}"
           ./bootstrap-vcpkg.sh
 
-      # 为 Windows 系统执行的步骤
+      # Bootstrap for Windows
       - name: Bootstrap vcpkg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -63,12 +63,23 @@ jobs:
           cd "${{ env.VCPKG_ROOT }}"
           ./bootstrap-vcpkg.bat
 
-      # ---------------------------------------------------
-
-      - name: Install OpenCV using vcpkg (Classic Mode)
-        shell: bash # vcpkg 命令在所有平台都能被 bash 正确调用
+      # --- 关键修正 2: 为不同平台使用不同的 shell 来安装 ---
+      
+      # Install for Unix (Linux/macOS)
+      - name: Install OpenCV (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
+
+      # Install for Windows
+      - name: Install OpenCV (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES_COMMAND }} --triplet ${{ matrix.triplet }}
+          
+      # ---------------------------------------------------
 
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
