@@ -1,4 +1,4 @@
-name: jbig2enc Windows (with Leptonica)
+name: jbig2enc Windows (x86_64)
 
 on:
   workflow_dispatch:
@@ -32,11 +32,30 @@ jobs:
         shell: msys2 {0}
         run: |
           set -ex
+
+          # 1) 让 autotools 用到 pkgconf（很多项目硬编码找 `pkg-config`）
+          export PKG_CONFIG=pkgconf
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+
+          # 2) 预检：zlib 是否可被 pkgconf 识别、是否能编译并链接
+          pkgconf --version
+          pkgconf --modversion zlib
+
+          printf '#include <zlib.h>\nint main(){return (int)zlibVersion()[0];}\n' > ztest.c
+          gcc -I/mingw64/include ztest.c -L/mingw64/lib -lz -o ztest.exe
+          ./ztest.exe || true
+
+          # 3) 获取源码并构建
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
           ./autogen.sh
-          ./configure --prefix="$PWD/../install_jb2"
+
+          # 显式传入 ZLIB 路径（双保险）
+          ./configure \
+            --prefix="$PWD/../install_jb2" \
+            ZLIB_CFLAGS="-I/mingw64/include" \
+            ZLIB_LIBS="-L/mingw64/lib -lz"
+
           make -j$(nproc || echo 2)
           make install
 
@@ -46,10 +65,10 @@ jobs:
           set -ex
           mkdir -p out/bin out/include out/lib out/deps/leptonica out/logs
 
-          # main exe
+          # 主程序
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
 
-          # runtime DLLs (存在才复制)
+          # 运行时 DLL（存在即复制）
           for f in \
             /mingw64/bin/zlib1.dll \
             /mingw64/bin/lept*.dll \
@@ -62,17 +81,17 @@ jobs:
             [ -f "$f" ] && cp -v "$f" out/bin/ || true
           done
 
-          # headers/libs for offline dev
+          # 头文件/库，便于离线开发
           cp -rv /mingw64/include/leptonica out/deps/leptonica/include || true
           mkdir -p out/deps/leptonica/lib/pkgconfig
           cp -rv /mingw64/lib/libLept*.a out/deps/leptonica/lib || true
-          cp -v /mingw64/lib/pkgconfig/lept*.pc out/deps/leptonica/lib/pkgconfig || true
+          cp -v  /mingw64/lib/pkgconfig/lept*.pc out/deps/leptonica/lib/pkgconfig || true
 
-          # jbig2enc install payloads (if any)
+          # jbig2enc 安装产物（若有）
           [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
-          [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
+          [ -d install_jb2/lib ]     && cp -rv install_jb2/lib/*     out/lib/     || true
 
-          # logs
+          # 日志
           [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/config.log || true
 
       - name: Upload artifact
