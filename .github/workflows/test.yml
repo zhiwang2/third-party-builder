@@ -38,9 +38,10 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # 最终修正：确保 install 字段内只有纯净的、以空格分隔的包名列表。
           install: >-
             git
-            make # <-- 修正点：显式安装 make 命令
+            make
             autoconf
             automake
             libtool
