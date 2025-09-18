@@ -1,30 +1,11 @@
-name: Third-Party Builder (prod)
+name: Minimal CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - ".github/workflows/third_party.yml"
-      - "scripts/**"
 
 jobs:
-  openjpeg:
-    name: OpenJPEG 2.5.3 (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix: { os: [ ubuntu-22.04, windows-latest, macos-14 ] }
+  hello:
+    runs-on: ubuntu-22.04
     steps:
-      - run: echo "Commit: ${{ github.sha }}"
-      - uses: actions/checkout@v4
-      - run: git clone --depth 1 --branch v2.5.3 https://github.com/uclouvain/openjpeg.git
-      - name: Build & Install
-        shell: bash
-        run: |
-          cmake -S openjpeg -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DCMAKE_INSTALL_PREFIX="$PWD/install"
-          cmake --build build --config Release -j
-          cmake --install build --config Release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openjpeg-2.5.3-${{ runner.os }}-${{ github.sha }}
-          path: install/**
+      - name: Say hello
+        run: echo "Hello from GitHub Actions"
