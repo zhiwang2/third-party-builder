@@ -5,9 +5,9 @@
 # 本文件根据用户提供的详细分析进行构建。核心解决方案是：
 # 1. 使用 MSYS2/MINGW64 作为构建环境。
 # 2. 绕过 jbig2enc 的 configure 脚本中存在的 zlib 检测缺陷。
-#    - 策略：在 autogen.sh 生成 configure 脚本前，修改 configure.ac，
-#      将导致退出的 AC_MSG_ERROR 宏替换为仅发出警告的 AC_MSG_WARN 宏。
-#      这比直接修改 configure 脚本更安全，能有效避免 shell 语法错误。
+#    - 最终策略：不再修改 configure.ac，而是直接对 autogen.sh 生成的
+#      configure 脚本本身进行打补丁，将其中的致命退出 (exit 1) 修改为非致命。
+#      这是一种更直接、更可靠的解决方案。
 # 3. 显式传入 ZLIB 和 Leptonica 的编译/链接标志。
 # 4. 最终打包 jbig2enc.exe 及其所有运行时依赖的 DLL 文件。
 #
@@ -24,7 +24,6 @@ jobs:
   build-windows:
     runs-on: windows-latest
     
-    # 为所有 'run' 步骤默认使用 msys2 shell
     defaults:
       run:
         shell: msys2 {0}
@@ -38,7 +37,6 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          # 最终修正：确保 install 字段内只有纯净的、以空格分隔的包名列表。
           install: >-
             git
             make
@@ -63,18 +61,22 @@ jobs:
           echo "切换到 0.30 版本..."
           git checkout 0.30
 
-      - name: 4. 修改 configure.ac 以规避 zlib 检测错误
-        working-directory: ./jbig2enc
-        run: |
-          echo "正在为 configure.ac 打补丁，将 AC_MSG_ERROR 替换为 AC_MSG_WARN..."
-          sed -i 's/AC_MSG_ERROR(\[zlib not detected.\])/AC_MSG_WARN([zlib not detected, but continuing anyway.])/' configure.ac
-          echo "补丁应用成功。"
-
-      - name: 5. 生成 configure 脚本
+      - name: 4. 生成 configure 脚本
         working-directory: ./jbig2enc
         run: |
           echo "正在运行 autogen.sh..."
           ./autogen.sh
+
+      - name: 5. 直接修补 configure 脚本以规避 zlib 检测错误
+        working-directory: ./jbig2enc
+        run: |
+          echo "正在为 configure 脚本打补丁，注释掉 zlib 检测失败后的 exit 1..."
+          # 核心修正：直接修改 configure 脚本。
+          # 此 sed 命令查找包含 "Error! zlib not detected." 的行，
+          # 然后通过 'n' 命令移动到下一行，并将该行的 'exit 1' 替换为 '# exit 1' (注释掉)。
+          # 'g' 标志确保脚本中的两处致命退出点都会被修补。
+          sed -i '/Error! zlib not detected./{n;s/exit 1/# Patched by GitHub Action: exit 1/g}' configure
+          echo "补丁应用成功。"
 
       - name: 6. 配置、编译和安装
         working-directory: ./jbig2enc
@@ -113,16 +115,16 @@ jobs:
           cp "$INSTALL_BIN_DIR/jbig2enc.exe" "$ARTIFACT_DIR/"
 
           echo "正在收集运行时依赖的 DLL 文件..."
-          # 根据您提供的依赖列表精确复制
-          cp "$MINGW_BIN_DIR/zlib1.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/liblept*.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libpng*.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libjpeg*.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libtiff*.dll" "$ARTIFACT_DIR/"
-          # 复制 GCC 运行时库
-          cp "$MINGW_BIN_DIR/libstdc++-6.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libgcc_s_seh-1.dll" "$ARTIFACT_DIR/"
-          cp "$MINGW_BIN_DIR/libwinpthread-1.dll" "$ARTIFACT_DIR/"
+          # 使用 ldd 查找所有动态链接库，比手动复制更可靠
+          # 注意：在 MSYS2/MinGW 环境下，ldd 是一个 bash 脚本，可以直接使用
+          cd "$ARTIFACT_DIR"
+          ldd jbig2enc.exe | grep mingw64 | awk '{print $3}' | xargs -r cp -v
+          cd ..
+
+          # 确保最基础的库被复制（ldd 有时可能不会列出所有间接依赖）
+          cp -v "$MINGW_BIN_DIR/zlib1.dll" "$ARTIFACT_DIR/" || true
+          cp -v "$MINGW_BIN_DIR/libwinpthread-1.dll" "$ARTIFACT_DIR/" || true
+
 
           echo "正在收集 config.log 以便调试..."
           cp "jbig2enc/config.log" "$ARTIFACT_DIR/"
