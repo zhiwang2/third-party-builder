@@ -9,7 +9,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Setup MSYS2 (MINGW64) and dependencies
+      - name: Setup MSYS2 (MINGW64) and base dependencies
         uses: msys2/setup-msys2@v2
         with:
           release: false
@@ -22,15 +22,78 @@ jobs:
             libtool
             m4
             git
-            # msys-side pkg-config (provides /usr/bin/pkg-config)
-            pkg-config
-            # mingw-side toolchain + pkgconf + libs
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-cmake
             mingw-w64-x86_64-libpng
             mingw-w64-x86_64-libjpeg-turbo
             mingw-w64-x86_64-libtiff
             mingw-w64-x86_64-leptonica
 
-      - name: Build jbig2enc 0.
+      # ---- Build zlib from source into a known prefix (install_zlib) ----
+      - name: Build zlib (shared) from source
+        shell: msys2 {0}
+        run: |
+          set -eux
+          git clone --depth 1 https://github.com/madler/zlib.git
+          cmake -S zlib -B build_zlib -G "MinGW Makefiles" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SHARED_LIBS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/install_zlib"
+          cmake --build build_zlib -j
+          cmake --install build_zlib
+          # Quick sanity check
+          ls -l install_zlib/include/zlib.h
+          ls -l install_zlib/lib/libz.dll.a
+          ls -l install_zlib/bin/zlib*.dll
+
+      # ---- Build jbig2enc using that zlib ----
+      - name: Build jbig2enc 0.30 (autotools / MSYS2)
+        shell: msys2 {0}
+        run: |
+          set -eux
+
+          # Compose flags from our zlib prefix
+          export ZCFLAGS="-I$PWD/install_zlib/include"
+          export ZLIBS="-L$PWD/install_zlib/lib -lz"
+
+          # Also export generic flags (double insurance)
+          export CPPFLAGS="${ZCFLAGS} ${CPPFLAGS:-}"
+          export LDFLAGS="${ZLIBS} ${LDFLAGS:-}"
+          export LIBS="${ZLIBS} ${LIBS:-}"
+
+          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+          cd jbig2enc
+          ./autogen.sh
+
+          # Pass zlib flags both as env and as explicit args
+          ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
+          ./configure ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
+                     --prefix="$PWD/../install_jb2"
+
+          make -j
+          make install
+
+      # ---- Collect runtime DLLs and upload artifact ----
+      - name: Collect and upload artifact
+        shell: bash
+        run: |
+          set -eux
+          mkdir -p out/bin out/lib out/include
+          # Main executable
+          cp -v install_jb2/bin/jbig2enc.exe out/bin/
+          # zlib runtime from our custom prefix
+          cp -v install_zlib/bin/zlib*.dll out/bin/ || true
+          # Common image/dep DLLs from MSYS2 prefix
+          cp -v /c/msys64/mingw64/bin/lept*.dll out/bin/ || true
+          cp -v /c/msys64/mingw64/bin/libpng*.dll out/bin/ || true
+          cp -v /c/msys64/mingw64/bin/libjpeg*.dll out/bin/ || true
+          cp -v /c/msys64/mingw64/bin/libtiff*.dll out/bin/ || true
+          # Dev files, if present
+          if [ -d install_jb2/include ]; then cp -rv install_jb2/include/* out/include/; fi
+          if ls install_jb2/lib/* 1>/dev/null 2>&1; then cp -v install_jb2/lib/* out/lib/; fi
+        # Upload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jbig2enc-0.30-Windows
+          path: out/**
