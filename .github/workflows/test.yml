@@ -3,9 +3,9 @@
 #
 # 摘要:
 # 本文件根据用户提供的详细分析进行构建。
-# 最终解决方案：放弃所有对脚本的补丁操作，采用更优雅、更标准的 Autotools 缓存机制。
-# 通过在 configure 阶段直接注入 ac_cv_lib_ws2_32__head_libws2_32_a=yes，
-# 从根源上解决了 jbig2enc 在 MinGW 上因 ws2_32 库检测瑕疵而导致的连锁失败问题。
+# 最终解决方案：通过注入 Autotools 缓存变量，从根源上解决了配置阶段的失败。
+# 针对最后一步的“文件找不到”错误，本版本不再猜测可执行文件的路径和名称，
+# 而是通过 `find` 命令主动搜索并复制，以确保最终打包的成功。
 #
 name: Build jbig2enc on Windows
 
@@ -71,9 +71,6 @@ jobs:
           mkdir -p "$INSTALL_PREFIX"
 
           echo "运行 ./configure 并注入缓存变量以修复 zlib 检测..."
-          # 核心修正：直接向 configure 注入 ac_cv_lib_ws2_32__head_libws2_32_a=yes
-          # 这直接解决了 jbig2enc 在 MinGW 上对 ws2_32 库的错误检测问题，
-          # 从而避免了连锁触发的“zlib not detected”错误。这比打补丁更干净。
           ./configure \
             --prefix="$INSTALL_PREFIX" \
             ac_cv_lib_ws2_32__head_libws2_32_a=yes \
@@ -90,16 +87,29 @@ jobs:
 
       - name: 6. 收集并打包产物
         run: |
+          echo "--- 构建已成功！正在查找并收集产物... ---"
+          
+          # 调试步骤：递归列出整个构建目录，以确定可执行文件的确切位置和名称
+          echo "--- 正在列出 'jbig2enc' 目录的全部内容... ---"
+          ls -R jbig2enc
+
           # 用于存放最终产物的目录
           ARTIFACT_DIR="jbig2enc-release"
           mkdir -p "$ARTIFACT_DIR"
 
-          # 修正点：从项目的根目录（构建目录）直接复制可执行文件，而不是从安装目录。
-          echo "正在收集 jbig2enc.exe (从项目构建目录)..."
-          cp "jbig2enc/jbig2enc.exe" "$ARTIFACT_DIR/"
+          echo "--- 正在使用 'find' 命令定位并复制可执行文件... ---"
+          # 核心修正：使用 find 命令搜索所有名为 jbig2*.exe 的文件并复制。
+          # 这解决了文件名（jbig2.exe vs jbig2enc.exe）和路径不确定的问题。
+          find jbig2enc -type f -name "jbig2*.exe" -exec cp {} "$ARTIFACT_DIR/" \;
 
+          # 验证可执行文件是否已成功复制
+          if ! ls -l "$ARTIFACT_DIR"/*.exe >/dev/null 2>&1; then
+              echo "::error::未能找到或复制任何 .exe 可执行文件！构建失败。"
+              exit 1
+          fi
+
+          echo "--- 正在收集运行时依赖的 DLL 文件... ---"
           MINGW_BIN_DIR="/mingw64/bin"
-          echo "正在收集运行时依赖的 DLL 文件..."
           # 使用通配符来匹配 DLL，使其对库的版本变化更具鲁棒性
           cp "$MINGW_BIN_DIR/zlib1.dll" "$ARTIFACT_DIR/"
           cp "$MINGW_BIN_DIR/liblept*.dll" "$ARTIFACT_DIR/"
@@ -111,10 +121,10 @@ jobs:
           cp "$MINGW_BIN_DIR/libgcc_s_seh-1.dll" "$ARTIFACT_DIR/"
           cp "$MINGW_BIN_DIR/libwinpthread-1.dll" "$ARTIFACT_DIR/"
 
-          echo "正在收集 config.log 以便调试..."
+          echo "--- 正在收集 config.log 以便调试... ---"
           cp "jbig2enc/config.log" "$ARTIFACT_DIR/"
 
-          echo "打包目录内容一览:"
+          echo "--- 打包目录最终内容一览: ---"
           ls -l "$ARTIFACT_DIR"
 
       - name: 7. 上传构建产物
