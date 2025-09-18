@@ -1,10 +1,10 @@
-name: jbig2enc (Windows only)
+name: jbig2enc Windows (with Leptonica)
 
 on:
   workflow_dispatch:
 
 jobs:
-  jbig2enc_windows:
+  build-win:
     runs-on: windows-latest
 
     steps:
@@ -13,7 +13,6 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          release: false
           install: >-
             base-devel
             git
@@ -22,77 +21,61 @@ jobs:
             automake
             libtool
             mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
             mingw-w64-x86_64-pkgconf
+            # 关键：提供 zlib 和 leptonica（含 .pc）
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-leptonica
+            # leptonica 运行时常见依赖
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libjpeg-turbo
+            mingw-w64-x86_64-libtiff
 
-      - name: Build zlib (shared DLL)
+      - name: Build jbig2enc 0.30 (no patches)
         shell: msys2 {0}
         run: |
           set -ex
-          git clone --depth 1 https://github.com/madler/zlib.git
-          cmake -S zlib -B build_zlib -G "MinGW Makefiles" \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DBUILD_SHARED_LIBS=ON \
-                -DCMAKE_INSTALL_PREFIX="$PWD/install_zlib"
-          cmake --build build_zlib -j
-          cmake --install build_zlib
-          ls -l install_zlib/include/zlib.h
-          ls -l install_zlib/lib/libz.dll.a
-          ls -l install_zlib/bin/*.dll
-
-      - name: Build jbig2enc 0.30 (patch configure.ac, not configure)
-        shell: msys2 {0}
-        run: |
-          set -ex
-          ZPREFIX="$PWD/install_zlib"
-
-          # 正向缓存，告诉 autoconf：zlib 头/库可用
-          cat > cache.site <<'EOF'
-          ac_cv_header_zlib_h=yes
-          ac_cv_lib_z_deflate=yes
-          EOF
-          export CONFIG_SITE="$PWD/cache.site"
-
-          # 让编译/链接显式指向我们安装好的 zlib
-          export CPPFLAGS="-I$ZPREFIX/include ${CPPFLAGS-}"
-          export LDFLAGS="-L$ZPREFIX/lib ${LDFLAGS-}"
-          export LIBS="-lz -lws2_32 ${LIBS-}"
-
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
-
-          # ★ 关键：补丁 configure.ac，将致命退出降级为告警；不破坏任何分支结构
-          # 1) AC_MSG_ERROR([...zlib...]) => AC_MSG_WARN([...])
-          sed -i -E 's/AC_MSG_ERROR\(\[[^]]*(Z|z)lib[^]]*(not|no)[^]]*(found|detect)[^]]*\]\)/AC_MSG_WARN([zlib not detected (ignored by CI patch).])/g' configure.ac
-          # 2) 若存在手写 echo "Error! zlib not detected." ; exit 1，将其改为提示并去掉 exit
-          sed -i -E 's/(echo[[:space:]]+")Error!([^"]*zlib[^"]*(not|no)[^"]*(found|detect)[^"]*)(")/\1zlib not detected (ignored by CI patch)\2\4/g' configure.ac
-          sed -i -E 's/;[[:space:]]*exit[[:space:]]+1/; : # skip exit/g' configure.ac
-
-          # 重新生成 configure（千万别再直接改 configure）
           ./autogen.sh
-
-          # 审核生成物里是否仍有 zlib 致命报错字样（仅打印，不失败）
-          grep -n -Ei '(zlib).*(not|no).*(found|detect)' configure || true
-
-          # 配置 & 构建 & 安装
-          ./configure --prefix="$PWD/../install_jb2" \
-            || { echo "=== tail config.log ==="; tail -n 200 config.log || true; exit 1; }
-          make -j
+          ./configure --prefix="$PWD/../install_jb2"
+          make -j$(nproc)
           make install
 
-      - name: Collect artifact
+      - name: Collect artifacts
         shell: msys2 {0}
         run: |
           set -ex
-          mkdir -p out/bin out/include out/lib out/logs
+          mkdir -p out/bin out/include out/lib out/deps/leptonica out/logs
+
+          # 主程序
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
-          cp -v install_zlib/bin/*.dll out/bin/ || true
-          [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/ || true
+
+          # 运行时 DLL：zlib + leptonica + 常见图像依赖（存在则复制）
+          for f in \
+            /mingw64/bin/zlib1.dll \
+            /mingw64/bin/lept*.dll \
+            /mingw64/bin/libpng*.dll \
+            /mingw64/bin/libjpeg*.dll \
+            /mingw64/bin/libtiff*.dll ; do
+            [ -f "$f" ] && cp -v "$f" out/bin/ || true
+          done
+
+          # 头文件与库（给你离线开发/链接备用）
+          cp -rv /mingw64/include/leptonica out/deps/leptonica/include || true
+          cp -rv /mingw64/lib/libLept*.a out/deps/leptonica/lib || true
+          cp -rv /mingw64/lib/pkgconfig/lept*.pc out/deps/leptonica/lib/pkgconfig || true
+
+          # jbig2enc 自身的安装产物（含静态/导入库、pkgconfig 如有）
           [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
           [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
+
+          # 日志（方便你定位问题）
+          [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/config.log || true
+          [ -f jbig2enc/configure ] && grep -n "zlib" jbig2enc/configure | tail -n 20 || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jbig2enc-0.30-Windows
+          name: jbig2enc-0.30-windows-x86_64
           path: out/**
