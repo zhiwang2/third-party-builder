@@ -1,31 +1,29 @@
 # .github/workflows/OpenCV.yml
 
-# 工作流的名称
-name: Build Minimal OpenCV with vcpkg
+name: Build Minimal OpenCV with vcpkg (No JSON)
 
-# 工作流的触发条件：
-# 1. 当有代码推送到主分支 (main) 时
-# 2. 允许在 GitHub Actions 页面手动触发 (workflow_dispatch)
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-# 定义环境变量，方便在多个步骤中复用
+# --- 全局环境变量 ---
 env:
-  # vcpkg 将被安装到这个目录
+  # vcpkg 的安装目录
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  
+  # 关键：在这里直接定义要安装的 OpenCV 包及其特性
+  # 格式为 '包名[特性1,特性2,...]'
+  # 这会关闭默认特性，只安装我们指定的模块
+  VCPKG_PACKAGES: "opencv4[core,imgproc,calib3d,world]"
 
 jobs:
-  # 定义一个名为 "build" 的任务
   build:
-    # 使用矩阵策略，为多个配置并行运行此任务
     strategy:
       matrix:
-        # 定义不同操作系统的配置
         include:
           - os: windows-latest
-            triplet: x64-windows # vcpkg 的目标平台三元组
+            triplet: x64-windows
             shell: pwsh
           - os: macos-latest
             triplet: x64-osx
@@ -34,25 +32,24 @@ jobs:
             triplet: x64-linux
             shell: bash
 
-    # 指定任务运行在哪个操作系统上，值来自上面的矩阵
     runs-on: ${{ matrix.os }}
 
-    # 定义任务的执行步骤
     steps:
-      # 步骤 1: 检出您的项目代码
+      # 1. 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 步骤 2: 缓存 vcpkg 以加速后续构建
+      # 2. 缓存 vcpkg
+      # 注意：缓存的 key 现在直接与我们定义的包列表挂钩
       - name: Cache vcpkg
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_ROOT }}
-          # 缓存的 key 包含操作系统和 vcpkg.json 的哈希值
-          # 当 vcpkg.json 改变时，缓存会自动失效
-          key: vcpkg-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.os }}-${{ env.VCPKG_PACKAGES }}
+          restore-keys: |
+            vcpkg-${{ matrix.os }}-
 
-      # 步骤 3: 安装并引导 vcpkg (如果缓存未命中)
+      # 3. 安装并引导 vcpkg (如果缓存未命中)
       - name: Bootstrap vcpkg
         shell: ${{ matrix.shell }}
         run: |
@@ -62,20 +59,17 @@ jobs:
           cd "${{ env.VCPKG_ROOT }}"
           ./bootstrap-vcpkg.sh
 
-      # 步骤 4: 使用 vcpkg 安装 OpenCV
-      - name: Install OpenCV using vcpkg
+      # 4. 使用 vcpkg 安装 OpenCV (核心改动)
+      # 直接从环境变量读取包列表进行安装
+      - name: Install OpenCV using vcpkg (Classic Mode)
         shell: ${{ matrix.shell }}
         run: |
-          # vcpkg 会自动读取根目录下的 vcpkg.json 文件来安装依赖
-          # VCPKG_DEFAULT_TRIPLET 告诉 vcpkg 为哪个目标平台构建
-          ${{ env.VCPKG_ROOT }}/vcpkg install --triplet ${{ matrix.triplet }}
+          ${{ env.VCPKG_ROOT }}/vcpkg install ${{ env.VCPKG_PACKAGES }} --triplet ${{ matrix.triplet }}
 
-      # 步骤 5: 将编译好的库文件打包为产物 (Artifact)
+      # 5. 上传编译产物
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
         with:
-          # 产物名称，包含操作系统信息，例如 "opencv-minimal-windows-latest"
           name: opencv-minimal-${{ matrix.os }}
-          # 要上传的路径，即 vcpkg 安装依赖的目录
           path: ${{ env.VCPKG_ROOT }}/installed/${{ matrix.triplet }}
-          retention-days: 7 # 产物保留 7 天
+          retention-days: 7
