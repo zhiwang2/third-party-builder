@@ -1,27 +1,97 @@
-  - name: Build jbig2enc 0.30 (autotools / MSYS2, force zlib)
-    shell: msys2 {0}
-    run: |
-      set -eux
+name: jbig2enc (Windows only)
 
-      # 用我们自己装的 zlib 前缀（上一步 install_zlib）
-      export ZCFLAGS="-I$PWD/install_zlib/include"
-      # 关键：在 zlib 的链接参数里显式加入 -lws2_32（Windows 上少数探测需要）
-      export ZLIBS="-L$PWD/install_zlib/lib -lz -lws2_32"
+on:
+  workflow_dispatch:  # manual trigger only
 
-      # 叠加到通用标志（双保险）
-      export CPPFLAGS="${ZCFLAGS} ${CPPFLAGS:-}"
-      export LDFLAGS="${ZLIBS} ${LDFLAGS:-}"
-      export LIBS="${ZLIBS} ${LIBS:-}"
+jobs:
+  jbig2enc_windows:
+    name: jbig2enc 0.30 — Windows (MSYS2/MINGW64)
+    runs-on: windows-latest
 
-      git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
-      cd jbig2enc
-      ./autogen.sh
+    steps:
+      - name: Setup MSYS2 (MINGW64) and deps
+        uses: msys2/setup-msys2@v2
+        with:
+          release: false
+          update: true
+          msystem: MINGW64
+          install: >-
+            base-devel
+            autoconf
+            automake
+            libtool
+            m4
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libjpeg-turbo
+            mingw-w64-x86_64-libtiff
+            mingw-w64-x86_64-leptonica
 
-      # 再加一层保险：用 Autoconf cache 强制命中 zlib 探测
-      ac_cv_header_zlib_h=yes ac_cv_lib_z_deflate=yes \
-      ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
-      ./configure ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
-                 --prefix="$PWD/../install_jb2" || { echo "=== configure failed, dumping tail of config.log ==="; tail -n 200 config.log; exit 1; }
+      # 1) Build zlib (shared) into a known prefix we control
+      - name: Build zlib (shared) from source
+        shell: msys2 {0}
+        run: |
+          set -ex
+          git clone --depth 1 https://github.com/madler/zlib.git
+          cmake -S zlib -B build_zlib -G "MinGW Makefiles" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SHARED_LIBS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/install_zlib"
+          cmake --build build_zlib -j
+          cmake --install build_zlib
+          ls -l install_zlib/include/zlib.h
+          ls -l install_zlib/lib/libz.dll.a
+          ls -l install_zlib/bin/zlib*.dll
 
-      make -j
-      make install
+      # 2) Build jbig2enc using that zlib; force zlib detection to pass
+      - name: Build jbig2enc 0.30 (autotools / MSYS2)
+        shell: msys2 {0}
+        run: |
+          set -ex
+          export ZCFLAGS="-I$PWD/install_zlib/include"
+          # NOTE: add -lws2_32 to avoid MinGW link probe false-negatives
+          export ZLIBS="-L$PWD/install_zlib/lib -lz -lws2_32"
+          export CPPFLAGS="$ZCFLAGS ${CPPFLAGS:-}"
+          export LDFLAGS="$ZLIBS ${LDFLAGS:-}"
+          export LIBS="$ZLIBS ${LIBS:-}"
+
+          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+          cd jbig2enc
+          ./autogen.sh
+
+          # Force Autoconf cache for zlib; dump config.log on failure
+          ac_cv_header_zlib_h=yes ac_cv_lib_z_deflate=yes \
+          ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
+          ./configure --prefix="$PWD/../install_jb2" \
+          || { echo "=== configure failed (tail config.log) ==="; tail -n 200 config.log || true; exit 1; }
+
+          make -j
+          make install
+
+      # 3) Collect logs (if any) and artifacts
+      - name: Collect files
+        shell: msys2 {0}
+        run: |
+          set -ex
+          mkdir -p out/bin out/lib out/include out/logs
+          cp -v install_jb2/bin/jbig2enc.exe out/bin/
+          # bundle runtime DLLs so it runs without PATH tweaks
+          cp -v install_zlib/bin/zlib*.dll out/bin/ || true
+          cp -v /mingw64/bin/lept*.dll out/bin/ || true
+          cp -v /mingw64/bin/libpng*.dll out/bin/ || true
+          cp -v /mingw64/bin/libjpeg*.dll out/bin/ || true
+          cp -v /mingw64/bin/libtiff*.dll out/bin/ || true
+          # dev files (if generated)
+          [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
+          [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
+          # helpful logs
+          [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jbig2enc-0.30-Windows
+          path: out/**
