@@ -1,0 +1,18 @@
+// vcpkg.json
+{
+  "name": "my-project-name",
+  "version": "1.0.0",
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "version>=": "4.12.0",
+      "features": [
+        "core",
+        "imgproc",
+        "calib3d",
+        "world"
+      ],
+      "default-features": false
+    }
+  ]
+}
