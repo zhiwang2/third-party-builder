@@ -34,14 +34,24 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eux
+
           # pkg-config 搜索路径
           export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-          # 读取 zlib 的编译/链接参数；读取失败则兜底
+          # 统一且稳妥的 zlib 编译/链接参数（无论 pkgconf 返回什么，都确保含 -L 与 -lz）
           ZCFLAGS="$(pkgconf --cflags zlib || true)";  [ -n "$ZCFLAGS" ] || ZCFLAGS="-I/mingw64/include"
-          ZLIBS="$(pkgconf --libs zlib   || true)";    [ -n "$ZLIBS" ]   || ZLIBS="-L/mingw64/lib -lz"
+          ZLIBS="$(pkgconf --libs zlib   || true)"
+          # 强制补上库目录与 -lz（避免只有 -lz 导致找不到库）
+          case " $ZLIBS " in
+            *" -L/mingw64/lib "*) : ;;
+            *) ZLIBS="-L/mingw64/lib ${ZLIBS}";;
+          esac
+          case " $ZLIBS " in
+            *" -lz "*) : ;;
+            *) ZLIBS="${ZLIBS} -lz";;
+          esac
 
-          # 叠加到全局标志（双保险）
+          # 叠加到通用标志（双保险）
           export CPPFLAGS="${ZCFLAGS} ${CPPFLAGS:-}"
           export LDFLAGS="${ZLIBS} ${LDFLAGS:-}"
           export LIBS="${ZLIBS} ${LIBS:-}"
@@ -50,9 +60,10 @@ jobs:
           cd jbig2enc
           ./autogen.sh
 
-          # 关键：把 ZLIB_* 显式前缀在 configure 调用前
+          # 关键：同时以“环境前缀 + 显式参数”的方式传入 ZLIB_*
           ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
-          ./configure --prefix="$PWD/../install_jb2"
+          ./configure ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
+                     --prefix="$PWD/../install_jb2"
 
           make -j
           make install
