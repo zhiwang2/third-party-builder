@@ -30,7 +30,6 @@ jobs:
             mingw-w64-x86_64-libtiff
             mingw-w64-x86_64-leptonica
 
-      # 1) Build zlib (shared) into a known prefix we control
       - name: Build zlib (shared) from source
         shell: msys2 {0}
         run: |
@@ -46,48 +45,50 @@ jobs:
           ls -l install_zlib/lib/libz.dll.a
           ls -l install_zlib/bin/zlib*.dll
 
-      # 2) Build jbig2enc using that zlib; force zlib detection to pass
       - name: Build jbig2enc 0.30 (autotools / MSYS2)
         shell: msys2 {0}
         run: |
           set -ex
+          # zlib 编译/链接参数（我们自建的前缀）
           export ZCFLAGS="-I$PWD/install_zlib/include"
-          # NOTE: add -lws2_32 to avoid MinGW link probe false-negatives
           export ZLIBS="-L$PWD/install_zlib/lib -lz -lws2_32"
-          export CPPFLAGS="$ZCFLAGS ${CPPFLAGS:-}"
-          export LDFLAGS="$ZLIBS ${LDFLAGS:-}"
-          export LIBS="$ZLIBS ${LIBS:-}"
+
+          # 通用标志（双保险）
+          export CPPFLAGS="$ZCFLAGS ${CPPFLAGS-}"
+          export LDFLAGS="$ZLIBS ${LDFLAGS-}"
+          export LIBS="$ZLIBS ${LIBS-}"
 
           git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
           cd jbig2enc
           ./autogen.sh
 
-          # Force Autoconf cache for zlib; dump config.log on failure
-          ac_cv_header_zlib_h=yes ac_cv_lib_z_deflate=yes \
-          ZLIB_CFLAGS="$ZCFLAGS" ZLIB_LIBS="$ZLIBS" \
-          ./configure --prefix="$PWD/../install_jb2" \
-          || { echo "=== configure failed (tail config.log) ==="; tail -n 200 config.log || true; exit 1; }
+          # 关键！把 Autoconf 缓存变量“导出”为环境变量
+          export ac_cv_header_zlib_h=yes
+          export ac_cv_lib_z_deflate=yes
+          export ZLIB_CFLAGS="$ZCFLAGS"
+          export ZLIB_LIBS="$ZLIBS"
+
+          ./configure --prefix="$PWD/../install_jb2" || { echo "=== tail config.log ==="; tail -n 200 config.log || true; exit 1; }
 
           make -j
           make install
 
-      # 3) Collect logs (if any) and artifacts
-      - name: Collect files
+      - name: Collect files & logs
         shell: msys2 {0}
         run: |
           set -ex
           mkdir -p out/bin out/lib out/include out/logs
           cp -v install_jb2/bin/jbig2enc.exe out/bin/
-          # bundle runtime DLLs so it runs without PATH tweaks
+          # 运行期 DLL：zlib(自建) + 常见依赖（MSYS2）
           cp -v install_zlib/bin/zlib*.dll out/bin/ || true
           cp -v /mingw64/bin/lept*.dll out/bin/ || true
           cp -v /mingw64/bin/libpng*.dll out/bin/ || true
           cp -v /mingw64/bin/libjpeg*.dll out/bin/ || true
           cp -v /mingw64/bin/libtiff*.dll out/bin/ || true
-          # dev files (if generated)
+          # 开发文件（若有）
           [ -d install_jb2/include ] && cp -rv install_jb2/include/* out/include/ || true
           [ -d install_jb2/lib ] && cp -rv install_jb2/lib/* out/lib/ || true
-          # helpful logs
+          # 日志
           [ -f jbig2enc/config.log ] && cp -v jbig2enc/config.log out/logs/ || true
 
       - name: Upload artifact
