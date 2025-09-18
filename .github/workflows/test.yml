@@ -38,9 +38,9 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          # 修正点：移除了所有注释和非包名的文本，只保留空格分隔的包名列表
           install: >-
             git
+            make # <-- 修正点：显式安装 make 命令
             autoconf
             automake
             libtool
@@ -66,10 +66,6 @@ jobs:
         working-directory: ./jbig2enc
         run: |
           echo "正在为 configure.ac 打补丁，将 AC_MSG_ERROR 替换为 AC_MSG_WARN..."
-          # 这是解决问题的关键步骤。直接修改 configure.ac 源文件，
-          # 将导致脚本因找不到 zlib 而失败退出的宏，换成只打印警告的宏。
-          # autogen.sh 稍后会基于这个修改过的文件生成一个不会中途退出的 configure 脚本。
-          # 'g' 标志确保文件中所有两处匹配项都会被替换。
           sed -i 's/AC_MSG_ERROR(\[zlib not detected.\])/AC_MSG_WARN([zlib not detected, but continuing anyway.])/' configure.ac
           echo "补丁应用成功。"
 
