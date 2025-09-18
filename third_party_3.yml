@@ -1,0 +1,72 @@
+name: Build third_party libs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  openjpeg:
+    name: OpenJPEG 2.5.3 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+    steps:
+      - uses: actions/checkout@v4
+      - run: git clone --depth 1 --branch v2.5.3 https://github.com/uclouvain/openjpeg.git
+      - name: Build & Install
+        shell: bash
+        run: |
+          cmake -S openjpeg -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DCMAKE_INSTALL_PREFIX="$PWD/install"
+          cmake --build build --config Release -j
+          cmake --install build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openjpeg-2.5.3-${{ runner.os }}
+          path: install/**
+
+  jbig2enc:
+    name: jbig2enc 0.30 (+leptonica) (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build leptonica (shared)
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
+          cmake -S leptonica -B build_lept -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX="$PWD/install_lept"
+          cmake --build build_lept --config Release -j
+          cmake --install build_lept --config Release
+      - name: Build jbig2enc (shared + CLI)
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+          cmake -S jbig2enc -B build_jb2 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+            -DLeptonica_DIR="$PWD/install_lept/lib/cmake/leptonica" -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2"
+          cmake --build build_jb2 --config Release -j
+          cmake --install build_jb2 --config Release
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jbig2enc-0.30-${{ runner.os }}
+          path: |
+            install_jb2/**
+            install_lept/**
+
+  verapdf:
+    name: veraPDF 1.28.2 bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+    steps:
+      - name: Download official zip (+asc)
+        shell: bash
+        run: |
+          mkdir out && cd out
+          curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip
+          curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip.asc
+          shasum -a 256 * > checksums.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verapdf-1.28.2-${{ runner.os }}
+          path: out/**
