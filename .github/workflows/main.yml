@@ -1,122 +1,135 @@
-name: Build third_party libs
+jbig2enc:
+  name: jbig2enc 0.30 (+leptonica) (${{ matrix.os }})
+  runs-on: ${{ matrix.os }}
+  strategy:
+    matrix: { os: [ubuntu-22.04, windows-latest, macos-14] }
+  steps:
+    - name: Print commit
+      run: echo "Commit: ${{ github.sha }}"
 
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/third_party.yml"
+    # ---------- Ubuntu ----------
+    - name: Linux deps (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake pkg-config \
+          zlib1g-dev libpng-dev libjpeg-turbo8-dev libtiff-dev
+    - name: Build Leptonica (Linux, shared)
+      if: runner.os == 'Linux'
+      run: |
+        git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
+        cmake -S leptonica -B build_lept \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_lept"
+        cmake --build build_lept -j
+        cmake --install build_lept
+    - name: Build jbig2enc (Linux, shared + CLI)
+      if: runner.os == 'Linux'
+      run: |
+        git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+        cmake -S jbig2enc -B build_jb2 \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_PREFIX_PATH="$PWD/install_lept" \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2"
+        cmake --build build_jb2 -j
+        cmake --install build_jb2
+    - name: Collect artifacts (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        mkdir -p out/jbig2enc/{bin,lib,include} out/leptonica/{bin,lib,include}
+        cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
+        cp -v install_jb2/lib/*.so* out/jbig2enc/lib/ || true
+        cp -rv install_jb2/include/* out/jbig2enc/include/ || true
+        cp -v install_lept/lib/*.so* out/leptonica/lib/ || true
+        cp -rv install_lept/include/* out/leptonica/include/ || true
 
-jobs:
-  openjpeg:
-    name: OpenJPEG 2.5.3 (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-14, ubuntu-22.04]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get source
-        run: git clone --depth 1 --branch v2.5.3 https://github.com/uclouvain/openjpeg.git
-      - name: Configure & Build
-        shell: bash
-        run: |
-          cmake -S openjpeg -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_CODEC=OFF -DCMAKE_INSTALL_PREFIX="$PWD/install"
-          cmake --build build --config Release -j
-          cmake --install build --config Release
-      - name: Layout & checksums
-        shell: bash
-        run: |
-          mkdir -p out/openjpeg/{bin,lib,include}
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            shopt -s nullglob
-            cp -v install/bin/*.dll out/openjpeg/bin/ || true
-            cp -v install/lib/*.lib out/openjpeg/lib/ || true
-            cp -rv install/include/* out/openjpeg/include/
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp -v install/lib/*.dylib out/openjpeg/lib/
-            cp -rv install/include/* out/openjpeg/include/
-          else
-            cp -v install/lib/libopenjp2.so* out/openjpeg/lib/
-            cp -rv install/include/* out/openjpeg/include/
-          fi
-          (cd out && find . -type f -print0 | xargs -0 shasum -a 256 > checksums.txt)
-          tar -czf openjpeg-${{ runner.os }}.tar.gz -C out .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openjpeg-2.5.3-${{ runner.os }}
-          path: openjpeg-*.tar.gz
+    # ---------- macOS ----------
+    - name: macOS deps (Homebrew)
+      if: runner.os == 'macOS'
+      run: |
+        brew update
+        brew install cmake pkg-config libpng jpeg-turbo libtiff
+    - name: Build Leptonica (macOS, shared)
+      if: runner.os == 'macOS'
+      run: |
+        git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
+        cmake -S leptonica -B build_lept \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_lept" \
+          -DCMAKE_INSTALL_RPATH="@loader_path;@loader_path/../lib"
+        cmake --build build_lept -j
+        cmake --install build_lept
+    - name: Build jbig2enc (macOS, shared + CLI)
+      if: runner.os == 'macOS'
+      run: |
+        git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+        cmake -S jbig2enc -B build_jb2 \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_PREFIX_PATH="$PWD/install_lept" \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2" \
+          -DCMAKE_INSTALL_RPATH="@loader_path;@loader_path/../lib"
+        cmake --build build_jb2 -j
+        cmake --install build_jb2
+    - name: Collect artifacts (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        mkdir -p out/jbig2enc/{bin,lib,include} out/leptonica/{bin,lib,include}
+        cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
+        cp -v install_jb2/lib/*.dylib out/jbig2enc/lib/ || true
+        cp -rv install_jb2/include/* out/jbig2enc/include/ || true
+        cp -v install_lept/lib/*.dylib out/leptonica/lib/ || true
+        cp -rv install_lept/include/* out/leptonica/include/ || true
 
-  jbig2enc:
-    name: jbig2enc 0.30 (+leptonica) (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-14, ubuntu-22.04]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build leptonica (shared)
-        shell: bash
-        run: |
-          git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
-          cmake -S leptonica -B build_lept -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX="$PWD/install_lept"
-          cmake --build build_lept --config Release -j
-          cmake --install build_lept --config Release
-      - name: Build jbig2enc (shared + CLI)
-        shell: bash
-        run: |
-          git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
-          cmake -S jbig2enc -B build_jb2 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
-            -DLeptonica_DIR="$PWD/install_lept/lib/cmake/leptonica" -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2"
-          cmake --build build_jb2 --config Release -j
-          cmake --install build_jb2 --config Release
-      - name: Layout & checksums
-        shell: bash
-        run: |
-          mkdir -p out/jbig2enc/{bin,lib,include} out/leptonica/{bin,lib,include}
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp -v install_jb2/bin/*.exe out/jbig2enc/bin/ || true
-            cp -v install_jb2/bin/*.dll out/jbig2enc/bin/ || true
-            cp -v install_jb2/lib/*.dll out/jbig2enc/bin/ || true
-            cp -v install_jb2/lib/*.lib out/jbig2enc/lib/ || true
-            cp -rv install_jb2/include/* out/jbig2enc/include/
-            cp -v install_lept/bin/*.dll out/leptonica/bin/ || true
-            cp -v install_lept/lib/*.lib out/leptonica/lib/ || true
-            cp -rv install_lept/include/* out/leptonica/include/
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
-            cp -v install_jb2/lib/*.dylib out/jbig2enc/lib/ || true
-            cp -rv install_jb2/include/* out/jbig2enc/include/
-            cp -v install_lept/lib/*.dylib out/leptonica/lib/ || true
-            cp -rv install_lept/include/* out/leptonica/include/
-          else
-            cp -v install_jb2/bin/jbig2enc out/jbig2enc/bin/ || true
-            cp -v install_jb2/lib/*.so* out/jbig2enc/lib/ || true
-            cp -rv install_jb2/include/* out/jbig2enc/include/
-            cp -v install_lept/lib/*.so* out/leptonica/lib/ || true
-            cp -rv install_lept/include/* out/leptonica/include/
-          fi
-          (cd out && find . -type f -print0 | xargs -0 shasum -a 256 > checksums.txt)
-          tar -czf jbig2enc-${{ runner.os }}.tar.gz -C out .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: jbig2enc-0.30-${{ runner.os }}
-          path: jbig2enc-*.tar.gz
+    # ---------- Windows ----------
+    - name: vcpkg (Windows) — install deps
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git
+        ./vcpkg/bootstrap-vcpkg.sh
+        ./vcpkg/vcpkg install zlib:x64-windows libpng:x64-windows libjpeg-turbo:x64-windows libtiff:x64-windows
+        echo "VCPKG_ROOT=$PWD/vcpkg" >> $GITHUB_ENV
+    - name: Build Leptonica (Windows, shared)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        git clone --depth 1 https://github.com/DanBloomberg/leptonica.git
+        cmake -S leptonica -B build_lept -G "Visual Studio 17 2022" -A x64 \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_lept"
+        cmake --build build_lept --config Release --target INSTALL
+    - name: Build jbig2enc (Windows, shared + CLI)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        git clone --depth 1 --branch 0.30 https://github.com/agl/jbig2enc.git
+        cmake -S jbig2enc -B build_jb2 -G "Visual Studio 17 2022" -A x64 \
+          -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+          -DCMAKE_PREFIX_PATH="$PWD/install_lept" \
+          -DCMAKE_INSTALL_PREFIX="$PWD/install_jb2"
+        cmake --build build_jb2 --config Release --target INSTALL
+    - name: Collect artifacts (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        mkdir -p out/jbig2enc/{bin,lib,include} out/leptonica/{bin,lib,include}
+        shopt -s nullglob
+        cp -v install_jb2/bin/*.exe out/jbig2enc/bin/ || true
+        cp -v install_jb2/bin/*.dll out/jbig2enc/bin/ || true
+        cp -v install_jb2/lib/*.lib out/jbig2enc/lib/ || true
+        cp -rv install_jb2/include/* out/jbig2enc/include/ || true
+        cp -v install_lept/bin/*.dll out/leptonica/bin/ || true
+        cp -v install_lept/lib/*.lib out/leptonica/lib/ || true
+        cp -rv install_lept/include/* out/leptonica/include/ || true
 
-  verapdf:
-    name: veraPDF 1.28.2 bundle (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix: { os: [windows-latest, macos-14, ubuntu-22.04] }
-    steps:
-      - name: Download official zip
-        shell: bash
-        run: |
-          mkdir out && cd out
-          curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip
-          curl -fLO https://software.verapdf.org/rel/arlington/1.28/verapdf-arlington-1.28.2-installer.zip.asc
-          shasum -a 256 * > checksums.txt
-          zip -r verapdf-1.28.2-${{ runner.os }}.zip .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: verapdf-1.28.2-${{ runner.os }}
-          path: out/verapdf-*.zip
+    - name: Checksums & upload
+      shell: bash
+      run: |
+        (cd out && find . -type f -print0 | xargs -0 shasum -a 256 > checksums.txt)
+      # 每个 OS 都会有各自的 out 目录内容
+    - uses: actions/upload-artifact@v4
+      with:
+        name: jbig2enc-0.30-${{ runner.os }}-${{ github.sha }}
+        path: out/**
