@@ -59,6 +59,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules `
             -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" `
+            -DOPENCV_GENERATE_PKGCONFIG=ON \
             -DBUILD_ZLIB=OFF `
             -DBUILD_PNG=OFF `
             -DBUILD_JPEG=OFF `
@@ -78,6 +79,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
             -DBUILD_LIST=${{ env.OPENCV_MODULES_LIST }} \
+            -DOPENCV_GENERATE_PKGCONFIG=ON \
             -DBUILD_ZLIB=OFF \
             -DBUILD_PNG=OFF \
             -DBUILD_JPEG=OFF \
