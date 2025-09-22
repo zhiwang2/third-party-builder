@@ -15,15 +15,12 @@ jobs:
   build-gpu:
     name: Build GPU for Linux
     runs-on: ubuntu-latest
-    # This development image already contains all necessary CUDA and cuDNN headers/libraries.
     container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
-      # 【修正】修正了我之前引入的拼写错误 'calibd' -> 'calib3d'
       OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
 
     steps:
-      # This step is now correct and minimal.
       - name: Install basic build dependencies
         shell: bash
         run: |
@@ -32,26 +29,27 @@ jobs:
             git cmake build-essential python3 python3-pip python3-numpy \
             libatlas-base-dev gfortran
 
-      # 【终极路径修正】移除 'path' 参数，使用 action 的默认、最稳健的行为
+      # This checkout places the opencv source in the workspace root
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv
           ref: ${{ env.OPENCV_VERSION }}
 
-      # 【终极路径修正】移除 'path' 参数，使用 action 的默认、最稳健的行为
+      # This creates a directory named 'opencv_contrib' in the workspace root
       - name: Checkout OpenCV Contrib Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv_contrib
           ref: ${{ env.OPENCV_VERSION }}
+          path: opencv_contrib
 
       - name: Configure CMake (Linux with CUDA)
-        # The default checkout creates a directory named after the repo, so we cd into 'opencv'
-        working-directory: opencv
+        # 【终极修正】移除 working-directory，在工作区根目录执行
         shell: bash
         run: |
-          # The path to contrib modules is now guaranteed to be correct
+          # The main CMakeLists.txt is in the current dir '.'
+          # The contrib modules are in './opencv_contrib/modules'
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
@@ -67,7 +65,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
       - name: Build and Install OpenCV
-        working-directory: opencv
+        # 【终极修正】移除 working-directory，在工作区根目录执行
         shell: bash
         run: cmake --build build --config Release --target install -j4
 
