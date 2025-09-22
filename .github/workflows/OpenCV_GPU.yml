@@ -5,7 +5,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/OpenCV_Linux_GPU.yml'   # 修改这个 yml 文件也触发
+      # 只有这些文件/目录变化时才触发
+      - '.github/workflows/OpenCV_Linux_GPU.yml'
       - 'ci/opencv/**'
       - 'scripts/opencv/**'
       - 'CMakeLists.txt'
@@ -20,9 +21,9 @@ on:
       - 'CMakeLists.txt'
       - 'opencv/**'
       - 'opencv_contrib/**'
-  workflow_dispatch:   # 允许手动触发
+  workflow_dispatch:   # 手动触发仍然可用
 
-# 防止重复运行：同一分支上有新提交会取消旧 run
+# 防止重复运行：新提交会自动取消旧 run
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -44,13 +45,12 @@ jobs:
       - name: Install container build dependencies
         shell: bash
         run: |
-          set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          apt-get update && apt-get install -y --no-install-recommends \
             git cmake build-essential python3 python3-pip python3-numpy \
+            libcublas-dev-12 \
+            libcudnn8-dev \
             libatlas-base-dev gfortran
-          pip3 install --no-cache-dir numpy
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
@@ -67,12 +67,18 @@ jobs:
           path: opencv_contrib
 
       - name: Configure CMake (Linux with CUDA)
-        working-directory: opencv
         shell: bash
         run: |
+          cd ${{ github.workspace }}/opencv
+          echo "--- Verifying opencv_contrib modules path ---"
+          CONTRIB_MODULES_PATH="${{ github.workspace }}/opencv_contrib/modules"
+          echo "Expected path: ${CONTRIB_MODULES_PATH}"
+          ls -la "${CONTRIB_MODULES_PATH}"
+          echo "--- Verification end ---"
+
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
+            -DOPENCV_EXTRA_MODULES_PATH="${CONTRIB_MODULES_PATH}" \
             -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" \
             -DWITH_CUDA=ON \
             -DWITH_CUDNN=ON \
@@ -85,9 +91,10 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
       - name: Build and Install OpenCV
-        working-directory: opencv
         shell: bash
-        run: cmake --build build --config Release --target install -j4
+        run: |
+          cd ${{ github.workspace }}/opencv
+          cmake --build build --config Release --target install -j4
 
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
