@@ -2,25 +2,27 @@
 name: Build Extended OpenCV (CPU and GPU)
 
 on:
-  # 只有这些路径变化时才会触发
   push:
     branches: [ main ]
     paths:
+      - '.github/workflows/OpenCV.yml'  # 修改本 yml 时也触发
       - 'ci/opencv/**'
       - 'scripts/opencv/**'
       - 'CMakeLists.txt'
-      - '.github/workflows/OpenCV.yml'    # 修改本 yml 也要触发
+      - 'opencv/**'
+      - 'opencv_contrib/**'
   pull_request:
     branches: [ main ]
     paths:
+      - '.github/workflows/OpenCV.yml'
       - 'ci/opencv/**'
       - 'scripts/opencv/**'
       - 'CMakeLists.txt'
-      - '.github/workflows/OpenCV.yml'
-  # 保留手动触发
+      - 'opencv/**'
+      - 'opencv_contrib/**'
   workflow_dispatch:
 
-# 同一 workflow + 分支上有新提交时，自动取消旧 run
+# 同一分支上新提交会自动取消旧运行，避免队列拥堵
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -30,7 +32,7 @@ env:
   INSTALL_DIR: ${{ github.workspace }}/install
 
 jobs:
-  # --- Job 1: 为 Windows 和 macOS 编译 CPU 版本 ---
+  # --- Job 1: CPU builds for Windows and macOS ---
   build-cpu:
     name: Build CPU for ${{ matrix.os }}
     strategy:
@@ -107,11 +109,11 @@ jobs:
           path: ${{ env.INSTALL_DIR }}
           retention-days: 7
 
-  # --- Job 2: 为 Linux 编译包含 CUDA 的 GPU 版本 ---
+  # --- Job 2: GPU build for Linux with CUDA/cuDNN ---
   build-gpu:
     name: Build GPU for Linux
     runs-on: ubuntu-latest
-    container: nvidia/cuda:12.1.1-devel-ubuntu22.04
+    container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
       OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
@@ -121,7 +123,9 @@ jobs:
         shell: bash
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
-            git cmake build-essential python3 python3-pip python3-numpy
+            git cmake build-essential python3 python3-pip python3-numpy \
+            libcublas-dev libcudnn8-dev \
+            libatlas-base-dev gfortran
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
@@ -144,8 +148,10 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
-            -DBUILD_LIST=${{ env.OPENCV_MODULES_LIST }} \
+            -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" \
             -DWITH_CUDA=ON \
+            -DWITH_CUDNN=ON \
+            -DOPENCV_DNN_CUDA=ON \
             -DCUDA_ARCH_BIN="7.5 8.0 8.6" \
             -DBUILD_ZLIB=OFF -DBUILD_PNG=OFF -DBUILD_JPEG=OFF -DBUILD_TIFF=OFF -DBUILD_WEBP=OFF \
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
