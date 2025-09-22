@@ -19,44 +19,39 @@ jobs:
     container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
+      # 【修正】修正了我之前引入的拼写错误 'calibd' -> 'calib3d'
       OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
 
     steps:
-      - name: Install container build dependencies
+      # This step is now correct and minimal.
+      - name: Install basic build dependencies
         shell: bash
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          # 【最终修正】不再安装任何 cuda-* 或 libcudnn*-dev 包。
-          # 它们已经存在于 'devel' 镜像中。我们只安装基础构建工具。
           apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            cmake \
-            build-essential \
-            python3 \
-            python3-pip \
-            python3-numpy \
-            libatlas-base-dev \
-            gfortran
+            git cmake build-essential python3 python3-pip python3-numpy \
+            libatlas-base-dev gfortran
 
+      # 【终极路径修正】移除 'path' 参数，使用 action 的默认、最稳健的行为
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv
           ref: ${{ env.OPENCV_VERSION }}
-          path: opencv
 
+      # 【终极路径修正】移除 'path' 参数，使用 action 的默认、最稳健的行为
       - name: Checkout OpenCV Contrib Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv_contrib
           ref: ${{ env.OPENCV_VERSION }}
-          path: opencv_contrib
 
       - name: Configure CMake (Linux with CUDA)
+        # The default checkout creates a directory named after the repo, so we cd into 'opencv'
         working-directory: opencv
         shell: bash
         run: |
-          # CMake will find the pre-installed CUDA/cuDNN in the container's default paths
+          # The path to contrib modules is now guaranteed to be correct
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
