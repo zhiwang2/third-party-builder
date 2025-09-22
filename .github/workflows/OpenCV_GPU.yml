@@ -29,30 +29,32 @@ jobs:
             git cmake build-essential python3 python3-pip python3-numpy \
             libatlas-base-dev gfortran
 
-      # This checkout places the opencv source in the workspace root
-      - name: Checkout OpenCV Source Code
-        uses: actions/checkout@v4
-        with:
-          repository: opencv/opencv
-          ref: ${{ env.OPENCV_VERSION }}
-
-      # This creates a directory named 'opencv_contrib' in the workspace root
-      - name: Checkout OpenCV Contrib Source Code
-        uses: actions/checkout@v4
-        with:
-          repository: opencv/opencv_contrib
-          ref: ${{ env.OPENCV_VERSION }}
-          path: opencv_contrib
-
-      - name: Configure CMake (Linux with CUDA)
-        # 【终极修正】移除 working-directory，在工作区根目录执行
+      # 【终极修正】使用最可靠的 git clone 代替 actions/checkout
+      - name: Clone OpenCV and Contrib repositories
         shell: bash
         run: |
-          # The main CMakeLists.txt is in the current dir '.'
-          # The contrib modules are in './opencv_contrib/modules'
+          set -e
+          echo "Cloning OpenCV repository..."
+          git clone --depth 1 --branch ${{ env.OPENCV_VERSION }} https://github.com/opencv/opencv.git
+          
+          echo "Cloning OpenCV Contrib repository..."
+          git clone --depth 1 --branch ${{ env.OPENCV_VERSION }} https://github.com/opencv/opencv_contrib.git
+
+      - name: Configure CMake (Linux with CUDA)
+        shell: bash
+        run: |
+          # 进入 opencv 目录
+          cd opencv
+
+          # 【法医级诊断】在运行 CMake 之前，打印出 contrib modules 目录的完整内容
+          echo "--- Verifying contents of opencv_contrib/modules ---"
+          ls -R ../opencv_contrib/modules
+          echo "--- Verification End ---"
+
+          # 现在路径是相对于当前目录的 ../opencv_contrib/modules
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
+            -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
             -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" \
             -DWITH_CUDA=ON \
             -DWITH_CUDNN=ON \
@@ -65,9 +67,11 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
 
       - name: Build and Install OpenCV
-        # 【终极修正】移除 working-directory，在工作区根目录执行
         shell: bash
-        run: cmake --build build --config Release --target install -j4
+        run: |
+          # 进入 opencv 目录
+          cd opencv
+          cmake --build build --config Release --target install -j4
 
       - name: Upload OpenCV Artifacts
         uses: actions/upload-artifact@v4
