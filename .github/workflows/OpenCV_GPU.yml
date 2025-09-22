@@ -18,25 +18,15 @@ jobs:
     container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
-      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsem,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
+      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
 
     steps:
       - name: Install container build dependencies
         shell: bash
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          apt-get update && apt-get install -y --no-install-recommends \
-            # 【终极语法修正】每个包独立一行，用反斜杠连接，杜绝空格错误
-            git \
-            cmake \
-            build-essential \
-            python3 \
-            python3-pip \
-            python3-numpy \
-            libcublas-dev \
-            libcudnn8-dev \
-            libatlas-base-dev \
-            gfortran
+          # 【终极语法修正】将所有包放在一行，彻底避免换行符/空格错误
+          apt-get update && apt-get install -y --no-install-recommends git cmake build-essential python3 python3-pip python3-numpy libcublas-dev libcufft-dev libnpp-dev libnvinfer-dev libatlas-base-dev gfortran
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
