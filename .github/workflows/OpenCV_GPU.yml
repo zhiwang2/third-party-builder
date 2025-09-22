@@ -1,4 +1,4 @@
-# .github/workflows/OpenCV_Linux_GPU_Final.yml
+# .github/workflows/OpenCV_Linux_GPU.yml
 
 name: Build Extended OpenCV (Linux GPU Only)
 
@@ -15,48 +15,43 @@ jobs:
   build-gpu:
     name: Build GPU for Linux
     runs-on: ubuntu-latest
-    # This development image already contains all necessary CUDA and cuDNN headers/libraries.
     container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
-      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
+      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calibd,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
 
     steps:
       - name: Install container build dependencies
         shell: bash
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          # 【最终修正】不再安装任何 cuda-* 或 libcudnn*-dev 包。
-          # 它们已经存在于 'devel' 镜像中。我们只安装基础构建工具。
+          # 【最终修正】安装官方的 CUDA 开发库元数据包，它会自动包含所有子库
           apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            cmake \
-            build-essential \
-            python3 \
-            python3-pip \
-            python3-numpy \
-            libatlas-base-dev \
-            gfortran
+            git cmake build-essential python3 python3-pip python3-numpy \
+            libcudnn8-dev \
+            cuda-libraries-dev-12-1 \
+            libatlas-base-dev gfortran
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv
           ref: ${{ env.OPENCV_VERSION }}
-          path: opencv
+          # 【修正】删除 'path' 参数，让 action 使用默认路径 'opencv'
 
       - name: Checkout OpenCV Contrib Source Code
         uses: actions/checkout@v4
         with:
           repository: opencv/opencv_contrib
           ref: ${{ env.OPENCV_VERSION }}
-          path: opencv_contrib
+          # 【修正】删除 'path' 参数，让 action 使用默认路径 'opencv_contrib'
 
       - name: Configure CMake (Linux with CUDA)
+        # 【修正】工作目录现在是 'opencv'，因为这是 checkout 的默认结果
         working-directory: opencv
         shell: bash
         run: |
-          # CMake will find the pre-installed CUDA/cuDNN in the container's default paths
+          # 【修正】所有路径都使用绝对路径，确保万无一失
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
