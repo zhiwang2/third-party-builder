@@ -1,11 +1,29 @@
 # .github/workflows/OpenCV.yml
-
 name: Build Extended OpenCV (CPU and GPU)
 
 on:
+  # 只有这些路径变化时才会触发
   push:
     branches: [ main ]
+    paths:
+      - 'ci/opencv/**'
+      - 'scripts/opencv/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/OpenCV.yml'    # 修改本 yml 也要触发
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ci/opencv/**'
+      - 'scripts/opencv/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/OpenCV.yml'
+  # 保留手动触发
   workflow_dispatch:
+
+# 同一 workflow + 分支上有新提交时，自动取消旧 run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   OPENCV_VERSION: '4.12.0'
@@ -34,15 +52,20 @@ jobs:
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
-        with: { repository: opencv/opencv, ref: '${{ env.OPENCV_VERSION }}', path: opencv }
+        with:
+          repository: opencv/opencv
+          ref: ${{ env.OPENCV_VERSION }}
+          path: opencv
 
       - name: Checkout OpenCV Contrib Source Code
         uses: actions/checkout@v4
-        with: { repository: opencv/opencv_contrib, ref: '${{ env.OPENCV_VERSION }}', path: opencv_contrib }
+        with:
+          repository: opencv/opencv_contrib
+          ref: ${{ env.OPENCV_VERSION }}
+          path: opencv_contrib
 
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
-        # ... (此部分无需改动，保持原样)
         working-directory: ./opencv
         shell: pwsh
         run: |
@@ -50,6 +73,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules `
             -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" `
+            -DCMAKE_CXX_FLAGS="/D_DISABLE_PRECOMPILED_HEADERS" `
             -DBUILD_ZLIB=OFF -DBUILD_PNG=OFF -DBUILD_JPEG=OFF -DBUILD_TIFF=OFF -DBUILD_WEBP=OFF `
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON `
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF `
@@ -58,7 +82,6 @@ jobs:
 
       - name: Configure CMake (macOS)
         if: runner.os == 'macOS'
-        # ... (此部分无需改动，保持原样)
         working-directory: ./opencv
         shell: bash
         run: |
@@ -88,9 +111,7 @@ jobs:
   build-gpu:
     name: Build GPU for Linux
     runs-on: ubuntu-latest
-    # 关键：我们仍然使用这个强大的容器，它包含了所有编译工具
     container: nvidia/cuda:12.1.1-devel-ubuntu22.04
-    # 【已修正】移除了 'options: --gpus all'，因为标准运行器没有 GPU
 
     env:
       OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
@@ -104,11 +125,17 @@ jobs:
 
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
-        with: { repository: opencv/opencv, ref: '${{ env.OPENCV_VERSION }}', path: opencv }
+        with:
+          repository: opencv/opencv
+          ref: ${{ env.OPENCV_VERSION }}
+          path: opencv
 
       - name: Checkout OpenCV Contrib Source Code
         uses: actions/checkout@v4
-        with: { repository: opencv/opencv_contrib, ref: '${{ env.OPENCV_VERSION }}', path: opencv_contrib }
+        with:
+          repository: opencv/opencv_contrib
+          ref: ${{ env.OPENCV_VERSION }}
+          path: opencv_contrib
 
       - name: Configure CMake (Linux with CUDA)
         working-directory: ./opencv
