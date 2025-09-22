@@ -18,19 +18,20 @@ jobs:
     container: nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
 
     env:
-      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
+      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calibd,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
 
     steps:
       - name: Install container build dependencies
         shell: bash
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          # 【最终修正】回归到最小且已验证的依赖集，移除非必需的、可能不存在的包
+          # 【最终修正】安装官方的 CUDA 开发库元数据包，它会自动包含所有子库
           apt-get update && apt-get install -y --no-install-recommends \
             git cmake build-essential python3 python3-pip python3-numpy \
-            libcublas-dev libcufft-dev libnpp-dev \
+            libcudnn8-dev \
+            cuda-libraries-dev-12-1 \
             libatlas-base-dev gfortran
-            
+
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
