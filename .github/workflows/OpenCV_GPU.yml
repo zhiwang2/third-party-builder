@@ -1,0 +1,139 @@
+# .github/workflows/OpenCV.yml
+
+name: Build Extended OpenCV (CPU and GPU)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  # 使用最新的稳定版 OpenCV 4.12.0
+  OPENCV_VERSION: '4.12.0'
+  INSTALL_DIR: ${{ github.workspace }}/install
+
+jobs:
+  # --- Job 1: 为 Windows 和 macOS 编译 CPU 版本 ---
+  build-cpu:
+    name: Build CPU for ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      # CPU 版本的模块列表：原有列表 + 新增的非 CUDA 模块
+      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi"
+
+    steps:
+      - name: Install build dependencies
+        shell: bash
+        run: python -m pip install numpy
+
+      - name: Checkout OpenCV Source Code
+        uses: actions/checkout@v4
+        with: { repository: opencv/opencv, ref: '${{ env.OPENCV_VERSION }}', path: opencv }
+
+      - name: Checkout OpenCV Contrib Source Code
+        uses: actions/checkout@v4
+        with: { repository: opencv/opencv_contrib, ref: '${{ env.OPENCV_VERSION }}', path: opencv_contrib }
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ./opencv
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules `
+            -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" `
+            -DBUILD_ZLIB=OFF -DBUILD_PNG=OFF -DBUILD_JPEG=OFF -DBUILD_TIFF=OFF -DBUILD_WEBP=OFF `
+            -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON `
+            -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF `
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF `
+            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
+
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        working-directory: ./opencv
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
+            -DBUILD_LIST=${{ env.OPENCV_MODULES_LIST }} \
+            -DBUILD_ZLIB=OFF -DBUILD_PNG=OFF -DBUILD_JPEG=OFF -DBUILD_TIFF=OFF -DBUILD_WEBP=OFF \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
+            -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
+
+      - name: Build and Install OpenCV
+        working-directory: ./opencv
+        shell: bash
+        run: cmake --build build --config Release --target install -j4
+
+      - name: Upload OpenCV Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencv-world-cpu-${{ runner.os }}
+          path: ${{ env.INSTALL_DIR }}
+          retention-days: 7
+
+  # --- Job 2: 为 Linux 编译包含 CUDA 的 GPU 版本 ---
+  build-gpu:
+    name: Build GPU for Linux
+    runs-on: ubuntu-latest
+    # 关键：使用一个预装了 CUDA Toolkit 的 Docker 容器作为运行环境
+    container: nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+    env:
+      # GPU 版本的模块列表：CPU 列表 + 所有 CUDA 模块
+      OPENCV_MODULES_LIST: "core,imgproc,imgcodecs,highgui,ml,quality,features2d,flann,ximgproc,calib3d,photo,objdetect,text,dnn,phase_unwrapping,xfeatures2d,line_descriptor,bgsegm,img_hash,gapi,cudaarithm,cudabgsegm,cudacodec,cudafeatures2d,cudafilters,cudaimgproc,cudalegacy,cudawarping,cudev"
+
+    steps:
+      - name: Install container build dependencies
+        shell: bash
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            git cmake build-essential python3 python3-pip python3-numpy
+
+      - name: Checkout OpenCV Source Code
+        uses: actions/checkout@v4
+        with: { repository: opencv/opencv, ref: '${{ env.OPENCV_VERSION }}', path: opencv }
+
+      - name: Checkout OpenCV Contrib Source Code
+        uses: actions/checkout@v4
+        with: { repository: opencv/opencv_contrib, ref: '${{ env.OPENCV_VERSION }}', path: opencv_contrib }
+
+      - name: Configure CMake (Linux with CUDA)
+        working-directory: ./opencv
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPENCV_EXTRA_MODULES_PATH=${{ github.workspace }}/opencv_contrib/modules \
+            -DBUILD_LIST=${{ env.OPENCV_MODULES_LIST }} \
+            -DWITH_CUDA=ON \
+            -DCUDA_ARCH_BIN="7.5 8.0 8.6" \
+            -DBUILD_ZLIB=OFF -DBUILD_PNG=OFF -DBUILD_JPEG=OFF -DBUILD_TIFF=OFF -DBUILD_WEBP=OFF \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
+            -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
+
+      - name: Build and Install OpenCV
+        working-directory: ./opencv
+        shell: bash
+        run: cmake --build build --config Release --target install -j4
+
+      - name: Upload OpenCV Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencv-world-gpu-linux
+          path: ${{ env.INSTALL_DIR }}
+          retention-days: 7
