@@ -25,9 +25,12 @@ jobs:
         shell: bash
         run: |
           export DEBIAN_FRONTEND=noninteractive
-          # 【终极语法修正】将所有包放在一行，彻底避免换行符/空格错误
-          apt-get update && apt-get install -y --no-install-recommends git cmake build-essential python3 python3-pip python3-numpy libcublas-dev libcufft-dev libnpp-dev libnvinfer-dev libatlas-base-dev gfortran
-
+          # 【最终修正】回归到最小且已验证的依赖集，移除非必需的、可能不存在的包
+          apt-get update && apt-get install -y --no-install-recommends \
+            git cmake build-essential python3 python3-pip python3-numpy \
+            libcublas-dev libcufft-dev libnpp-dev \
+            libatlas-base-dev gfortran
+            
       - name: Checkout OpenCV Source Code
         uses: actions/checkout@v4
         with:
