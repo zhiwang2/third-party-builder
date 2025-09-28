@@ -9,7 +9,8 @@ on:
 
 env:
   OPENCV_VERSION: '4.12.0'
-  INSTALL_DIR: ${{ github.workspace }}/install
+  # Remove the workspace-relative path for now
+  # INSTALL_DIR: ${{ github.workspace }}/install
 
 jobs:
   build-gpu:
@@ -29,7 +30,6 @@ jobs:
             git cmake build-essential python3 python3-pip python3-numpy \
             libatlas-base-dev gfortran
 
-      # 【终极修正】使用最可靠的 git clone 代替 actions/checkout
       - name: Clone OpenCV and Contrib repositories
         shell: bash
         run: |
@@ -43,18 +43,25 @@ jobs:
       - name: Configure CMake (Linux with CUDA)
         shell: bash
         run: |
-          # 进入 opencv 目录
+          # Store the absolute path of the install directory
+          export INSTALL_DIR_ABS=$(pwd)/install
+          echo "Install directory will be: $INSTALL_DIR_ABS"
+          
+          # Create the install directory
+          mkdir -p "$INSTALL_DIR_ABS"
+          
+          # Enter opencv directory
           cd opencv
 
-          # 【法医级诊断】在运行 CMake 之前，打印出 contrib modules 目录的完整内容
+          # Verify opencv_contrib modules
           echo "--- Verifying contents of opencv_contrib/modules ---"
-          ls -R ../opencv_contrib/modules
+          ls -la ../opencv_contrib/modules | head -20
           echo "--- Verification End ---"
 
-          # 现在路径是相对于当前目录的 ../opencv_contrib/modules
+          # Configure with absolute path
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
+            -DOPENCV_EXTRA_MODULES_PATH="../opencv_contrib/modules" \
             -DBUILD_LIST="${{ env.OPENCV_MODULES_LIST }}" \
             -DWITH_CUDA=ON \
             -DWITH_CUDNN=ON \
@@ -64,18 +71,64 @@ jobs:
             -DBUILD_SHARED_LIBS=ON -DBUILD_opencv_world=ON \
             -DWITH_IPP=OFF -DWITH_TBB=OFF -DWITH_OPENMP=OFF -DWITH_QT=OFF -DWITH_FFMPEG=OFF \
             -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF \
-            -DCMAKE_INSTALL_PREFIX=${{ env.INSTALL_DIR }}
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR_ABS"
 
       - name: Build and Install OpenCV
         shell: bash
         run: |
-          # 进入 opencv 目录
           cd opencv
-          cmake --build build --config Release --target install -j4
+          # Build
+          cmake --build build --config Release -j4
+          # Explicitly run install
+          cmake --build build --config Release --target install
 
-      - name: Upload OpenCV Artifacts
+      - name: Verify installation
+        shell: bash
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Checking install directory ==="
+          if [ -d "install" ]; then
+            echo "Install directory exists"
+            echo "Contents of install/:"
+            ls -la install/
+            echo "Contents of install/lib (if exists):"
+            ls -la install/lib/ 2>/dev/null || echo "No lib directory"
+            echo "Finding all .so files:"
+            find install -name "*.so*" -type f
+          else
+            echo "Install directory not found at $(pwd)/install"
+            echo "Searching for install directories:"
+            find . -name "install" -type d
+          fi
+          
+          echo "=== Finding OpenCV libraries anywhere ==="
+          find . -name "libopencv*.so*" -type f | head -20
+
+      - name: Create artifact archive
+        shell: bash
+        run: |
+          # If the install directory exists, create a tar archive
+          if [ -d "install" ]; then
+            echo "Creating archive from install directory"
+            tar czf opencv-gpu-linux.tar.gz -C install .
+            ls -lh opencv-gpu-linux.tar.gz
+          else
+            echo "ERROR: Install directory not found!"
+            exit 1
+          fi
+
+      - name: Upload OpenCV Artifacts (Archive)
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencv-world-gpu-linux-archive
+          path: opencv-gpu-linux.tar.gz
+          retention-days: 7
+
+      - name: Upload OpenCV Artifacts (Directory)
         uses: actions/upload-artifact@v4
         with:
           name: opencv-world-gpu-linux
-          path: ${{ env.INSTALL_DIR }}
+          path: install
           retention-days: 7
+          if-no-files-found: warn
